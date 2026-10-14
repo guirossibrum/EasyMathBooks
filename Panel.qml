@@ -112,7 +112,6 @@ Panel {
     { name: "Worksheet", icon: "󰃬" },
     { name: "Progress", icon: "󰄨" }
   ]
-  readonly property var settings: snap.settings || ({})
   readonly property var students: snap.students || []
   readonly property var levels: snap.levels || []
   readonly property var sessions: snap.sessions || []
