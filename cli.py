@@ -33,6 +33,7 @@ from store import (
     rename_student,
     set_setting,
     student_by_id,
+    update_student,
 )
 
 
@@ -156,7 +157,11 @@ def snapshot(settings=None, extra=None):
         "pages": preview["pages"],
         "levels": [{"num": lv.num, "title": lv.title} for lv in LEVELS],
         "students": students,
-        "sessions": sessions[:80],
+        "sessions": sorted(
+            sessions,
+            key=lambda row: (str(row["taken_at"]), int(row["id"])),
+            reverse=True,
+        )[:80],
         "stats": stats,
         "report": report,
         "last_sheet": last,
@@ -222,13 +227,34 @@ def cmd_generate(payload):
 def cmd_add_student(payload):
     name = str(payload.get("name") or "").strip()
     try:
-        student = add_student(name)
+        student = add_student(name, payload.get("gender"), payload.get("motif"))
     except ValueError as e:
         return fail(str(e))
     except sqlite3.IntegrityError:
         return fail("A student with that name already exists.")
     set_setting("student_id", student["id"])
+    set_setting("level", 1)
+    set_setting("variant", 1)
     return ok(snapshot(current_settings(), {"student": student}))
+
+
+def cmd_update_student(payload):
+    student = update_student(as_int(payload.get("student_id")),
+                             str(payload.get("name") or ""),
+                             payload.get("gender"), payload.get("motif"))
+    return ok(snapshot(extra={"profile_saved": student}))
+
+
+def cmd_export_report(payload):
+    from report import write_report
+    student_id = as_int(payload.get("student_id"))
+    student = student_by_id(student_id) if student_id else None
+    if not student:
+        return fail("Choose a student first.")
+    path = write_report(student, list_sessions(student_id),
+                        period=payload.get("period", "month"),
+                        paper=current_settings()["paper"])
+    return ok(snapshot(extra={"report_document": {"path": str(path)}}))
 
 
 def cmd_rename_student(payload):
@@ -308,6 +334,8 @@ COMMANDS = {
     "generate": cmd_generate,
     "add-student": cmd_add_student,
     "rename-student": cmd_rename_student,
+    "update-student": cmd_update_student,
+    "export-report": cmd_export_report,
     "delete-student": cmd_delete_student,
     "save-session": cmd_save_session,
     "delete-session": cmd_delete_session,

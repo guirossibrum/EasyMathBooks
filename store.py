@@ -112,6 +112,38 @@ def init_db():
             );
             """
         )
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(students)")}
+        for column in ("gender", "motif"):
+            if column not in columns:
+                conn.execute(f"ALTER TABLE students ADD COLUMN {column} TEXT")
+
+
+MOTIFS = {
+    "female": ("flowers", "unicorns", "butterflies"),
+    "male": ("sports", "cars", "airplanes"),
+}
+
+
+def validate_profile(gender, motif):
+    if gender not in MOTIFS:
+        raise ValueError("Choose Male or Female.")
+    if motif not in MOTIFS[gender]:
+        raise ValueError("Choose a motif for the selected gender.")
+
+
+def update_student(student_id, name, gender, motif):
+    validate_profile(gender, motif)
+    name = name.strip()
+    if not name:
+        raise ValueError("Student name cannot be empty.")
+    with session() as conn:
+        result = conn.execute(
+            "UPDATE students SET name = ?, gender = ?, motif = ? WHERE id = ?",
+            (name, gender, motif, student_id),
+        )
+        if not result.rowcount:
+            raise ValueError("Student not found.")
+    return student_by_id(student_id)
 
 
 def now_iso():
@@ -142,22 +174,24 @@ def all_settings():
 def list_students():
     with session() as conn:
         rows = conn.execute(
-            "SELECT id, name, created_at FROM students ORDER BY name COLLATE NOCASE"
+            "SELECT id, name, gender, motif, created_at FROM students ORDER BY name COLLATE NOCASE"
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def add_student(name):
+def add_student(name, gender=None, motif=None):
+    if gender is not None or motif is not None:
+        validate_profile(gender, motif)
     name = name.strip()
     if not name:
         raise ValueError("Student name cannot be empty.")
     with session() as conn:
         conn.execute(
-            "INSERT INTO students(name, created_at) VALUES(?, ?)",
-            (name, now_iso()),
+            "INSERT INTO students(name, gender, motif, created_at) VALUES(?, ?, ?, ?)",
+            (name, gender, motif, now_iso()),
         )
         row = conn.execute(
-            "SELECT id, name, created_at FROM students WHERE id = last_insert_rowid()"
+            "SELECT id, name, gender, motif, created_at FROM students WHERE id = last_insert_rowid()"
         ).fetchone()
     return dict(row)
 
@@ -178,7 +212,7 @@ def delete_student(student_id):
 def student_by_id(student_id):
     with session() as conn:
         row = conn.execute(
-            "SELECT id, name, created_at FROM students WHERE id = ?", (student_id,)
+            "SELECT id, name, gender, motif, created_at FROM students WHERE id = ?", (student_id,)
         ).fetchone()
     return dict(row) if row else None
 

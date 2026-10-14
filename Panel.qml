@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
@@ -28,6 +29,49 @@ Panel {
   property string pendingCmd: ""
   property var pendingPayload: ({})
   property int activeTab: 0
+  property bool settingsOpen: false
+  property string settingsPage: "print"
+  property string profileId: ""
+  property string profileGender: "female"
+  property string profileMotif: "flowers"
+  property string reportPeriod: "month"
+  readonly property var genderOptions: [{value: "female", label: "Female"}, {value: "male", label: "Male"}]
+  readonly property var motifOptions: profileGender === "female"
+    ? [{value: "flowers", label: "Flowers"}, {value: "unicorns", label: "Unicorns"}, {value: "butterflies", label: "Butterflies"}]
+    : [{value: "sports", label: "Sports"}, {value: "cars", label: "Cars"}, {value: "airplanes", label: "Airplanes"}]
+
+  function editProfile(newProfile) {
+    profileId = newProfile ? "" : studentId
+    newStudentName = ""
+    profileGender = "female"
+    profileMotif = "flowers"
+    if (!newProfile) {
+      for (var i = 0; i < students.length; i++) {
+        if (String(students[i].id) === profileId) {
+          newStudentName = students[i].name
+          profileGender = students[i].gender || "female"
+          profileMotif = students[i].motif || (profileGender === "male" ? "sports" : "flowers")
+        }
+      }
+    }
+    settingsOpen = true
+    settingsPage = "profile"
+  }
+
+  function saveProfile(name) {
+    newStudentName = name
+    run(profileId ? "update-student" : "add-student", {
+      student_id: profileId ? Number(profileId) : "",
+      name: name, gender: profileGender, motif: profileMotif
+    })
+  }
+  property bool practiceMode: false
+  property string nextSheetCode: ""
+
+  function prepareNextSheet() {
+    practiceMode = false
+    if (nextSheetCode) applyCode(nextSheetCode)
+  }
   property string studentId: ""
   property string levelValue: "1"
   property int seedValue: 1
@@ -45,11 +89,27 @@ Panel {
   property int confirmSessionId: 0
   property string codeDraft: ""
   property bool hydrated: false
+  property var createdSheet: null
+  property int sessionPage: 0
+  readonly property var recentSessions: sessions.slice(sessionPage * 3, sessionPage * 3 + 3)
+  onStudentIdChanged: {
+    createdSheet = null
+    nextSheetCode = ""
+    sessionPage = 0
+    resetTimer()
+    scoreValue = 0
+    notesText = ""
+  }
+
+  function practiceCreatedSheet() {
+    if (createdSheet) applyCode(createdSheet.code)
+    practiceMode = true
+    settingsOpen = false
+    activeTab = 0
+  }
 
   readonly property var tabs: [
-    { name: "Sheet", icon: "󰃬" },
-    { name: "Practice", icon: "󰔟" },
-    { name: "Students", icon: "󰀉" },
+    { name: "Worksheet", icon: "󰃬" },
     { name: "Progress", icon: "󰄨" }
   ]
   readonly property var settings: snap.settings || ({})
@@ -61,8 +121,10 @@ Panel {
   readonly property int problemCount: Number(snap.problem_count || 0)
   readonly property string sheetCode: String(levelValue || "1") + "-" + String(seedValue || 1)
   readonly property var lastSheet: snap.last_sheet || null
-  readonly property string pdfPath: lastSheet && lastSheet.pdf_path ? String(lastSheet.pdf_path) : (snap.generated && snap.generated.pdf_path ? String(snap.generated.pdf_path) : "")
-  readonly property string answersPath: lastSheet && lastSheet.answers_path ? String(lastSheet.answers_path) : (snap.generated && snap.generated.answers_path ? String(snap.generated.answers_path) : "")
+  readonly property var currentPdfSheet: createdSheet && createdSheet.code === sheetCode ? createdSheet
+    : (lastSheet && lastSheet.sheet_code === sheetCode ? lastSheet : null)
+  readonly property string pdfPath: currentPdfSheet && currentPdfSheet.pdf_path ? String(currentPdfSheet.pdf_path) : ""
+  readonly property string answersPath: currentPdfSheet && currentPdfSheet.answers_path ? String(currentPdfSheet.answers_path) : ""
   readonly property int elapsedSec: Math.max(0, Math.floor(((timerOn ? nowMs - timerStarted : 0) + timerBase) / 1000))
   readonly property int elapsedMin: Math.floor(elapsedSec / 60)
   readonly property int elapsedSecPart: elapsedSec % 60
@@ -75,7 +137,7 @@ Panel {
   }
 
   readonly property var studentOptions: {
-    var out = [{ value: "", label: "Blank name line" }]
+    var out = [{ value: "", label: activeTab === 1 || practiceMode ? "Choose a student" : "Blank name line" }]
     for (var i = 0; i < students.length; i++)
       out.push({ value: String(students[i].id), label: String(students[i].name) })
     return out
@@ -110,21 +172,22 @@ Panel {
     if (!m) return null
     var level = Number(m[1])
     var seed = Number(m[2])
-    if (!(level >= 1) || !(seed >= 1)) return null
+    if (!(level >= 1 && level <= 40) || !(seed >= 1 && seed <= 2147483646)) return null
     return { level: level, seed: seed }
   }
 
   function applyCode(text) {
     var parsed = parseCode(text)
     if (!parsed) {
-      lastError = "Sheet code looks like 1-502 (level-seed)."
+      lastError = "Use a level from 1–40 and a positive sheet number, e.g. 1-502."
       return
     }
+    if (String(parsed.level) === levelValue && parsed.seed === seedValue) return
     levelValue = String(parsed.level)
     seedValue = parsed.seed
     codeDraft = sheetCode
     lastError = ""
-    refresh()
+    scheduleRefresh()
   }
 
   function selectionPayload() {
@@ -166,6 +229,7 @@ Panel {
 
   function applySnap(data) {
     snap = data
+    sessionPage = Math.min(sessionPage, Math.max(0, Math.ceil(sessions.length / 3) - 1))
     hydrated = true
     var s = data.settings || ({})
     if (s.student_id === null || s.student_id === undefined || s.student_id === "")
@@ -179,8 +243,20 @@ Panel {
     if (s.answers !== undefined) answersOn = !!s.answers
     codeDraft = String(levelValue) + "-" + String(seedValue)
     if (data.generated && data.generated.pdf_path) {
+      snap = Object.assign({}, data, { problem_count: data.generated.problem_count })
+      createdSheet = data.generated
+      nextSheetCode = sheetCode
       lastMessage = "Wrote " + data.generated.code + " · " + data.generated.problem_count + " problems"
       openPath(data.generated.pdf_path)
+      practiceCreatedSheet()
+    }
+    if (data.report_document) openPath(data.report_document.path)
+    if (data.profile_saved) { settingsPage = "students"; lastMessage = "Student profile saved" }
+    if (data.student) {
+      newStudentName = ""
+      settingsOpen = false
+      practiceMode = false
+      activeTab = 0
     }
     if (data.saved) {
       lastMessage = "Saved " + data.saved.sheet_code + " in " + formatDuration(data.saved.duration_seconds)
@@ -188,22 +264,11 @@ Panel {
       resetTimer()
       scoreValue = 0
       notesText = ""
+      practiceMode = false
+      createdSheet = null
+      nextSheetCode = ""
+      activeTab = 1
     }
-  }
-
-  function addStudent() {
-    var name = String(newStudentName || "").trim()
-    if (!name) {
-      lastError = "Type a student name."
-      return
-    }
-    run("add-student", { name: name })
-    newStudentName = ""
-  }
-
-  function deleteCurrentStudent() {
-    if (studentId === "") return
-    confirmKind = "student"
   }
 
   function spinValue(field, fallback) {
@@ -217,6 +282,8 @@ Panel {
   }
 
   function savePractice() {
+    if (studentId === "" || busy || problemCount < 1) return
+    pauseTimer()
     var payload = selectionPayload()
     payload.duration_seconds = elapsedSec
     payload.score = scoreValue
@@ -229,6 +296,7 @@ Panel {
   function startTimer() {
     if (timerOn) return
     timerStarted = Date.now()
+    nowMs = timerStarted
     timerOn = true
   }
 
@@ -271,38 +339,12 @@ Panel {
     return row.score + " / " + row.score_max
   }
 
-  function trendLabel(stat) {
-    var first = stat && stat.first ? Number(stat.first.duration_seconds) : 0
-    var last = stat && stat.last ? Number(stat.last.duration_seconds) : 0
-    if (!(first > 0) || !(last > 0) || first === last) return "steady"
-    return last < first ? "faster" : "slower"
-  }
-
-  function perExerciseLabel(row) {
-    var n = Number(row && row.score_max)
-    var s = Number(row && row.duration_seconds)
-    if (!(n > 0) || !isFinite(s)) return ""
-    var each = s / n
-    var label
-    if (each >= 60) label = formatDuration(Math.round(each)) + " / exercise"
-    else if (Math.abs(each - Math.round(each)) < 0.05) label = Math.round(each) + "s / exercise"
-    else label = each.toFixed(1) + "s / exercise"
-    return " · " + label
-  }
-
   function pctLabel(value) {
     if (value === null || value === undefined) return "—"
     var n = Number(value)
     if (!isFinite(n)) return "—"
     if (n === Math.round(n)) return Math.round(n) + "%"
     return n.toFixed(1) + "%"
-  }
-
-  function levelTitle(num) {
-    for (var i = 0; i < levels.length; i++) {
-      if (Number(levels[i].num) === Number(num)) return String(levels[i].title || "")
-    }
-    return ""
   }
 
   readonly property var reportCardItems: [
@@ -315,11 +357,11 @@ Panel {
       label: "This week",
       value: String(report.week_count || 0),
       detail: report.week_skipped
-        ? (report.week_skipped + (Number(report.week_skipped) === 1 ? " day skipped" : " days skipped"))
-        : "this week"
+        ? (report.week_skipped + (Number(report.week_skipped) === 1 ? " day without practice" : " days without practice"))
+        : "sheets since Monday"
     },
     {
-      label: "Correct",
+      label: "Accuracy · all time",
       value: pctLabel(report.accuracy_pct),
       detail: report.possible ? (report.correct + " / " + report.possible) : "no scores yet"
     },
@@ -391,10 +433,13 @@ Panel {
     function refresh(): string { root.refresh(); return "ok" }
     function tab(name: string): string {
       var n = String(name || "").toLowerCase()
-      if (n === "sheet" || n === "0") root.activeTab = 0
-      else if (n === "practice" || n === "1") root.activeTab = 1
-      else if (n === "students" || n === "2") root.activeTab = 2
-      else if (n === "progress" || n === "3") root.activeTab = 3
+      root.settingsOpen = false
+      if (n === "progress" || n === "3") root.activeTab = 1
+      else {
+        root.activeTab = 0
+        root.practiceMode = n === "practice" || n === "1"
+        root.settingsOpen = n === "students" || n === "2"
+      }
       root.open()
       return String(root.activeTab)
     }
@@ -420,30 +465,31 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(520))
-    contentHeight: panel.fittedContentHeight(Style.space(640))
+    contentHeight: panel.fittedContentHeight(panelContent.implicitHeight)
 
-    PanelKeyCatcher {
+    FocusScope {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.confirmKind !== ""
-
-      onCloseRequested: {
-        if (root.confirmKind !== "") root.confirmKind = ""
-        else root.close()
-      }
-      onMoveRequested: function(dx, dy) {
-        if (dx !== 0)
+      focus: true
+      Keys.onPressed: function(event) {
+        if (root.confirmKind !== "") return
+        if (event.key === Qt.Key_Escape) { root.close(); event.accepted = true }
+        // Editors and focused controls handle their own keys first.
+        if (Window.window && Window.window.activeFocusItem !== keyCatcher) return
+        if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+          var dx = event.key === Qt.Key_Right ? 1 : -1
           root.activeTab = (root.activeTab + dx + root.tabs.length) % root.tabs.length
-      }
-      onActivateRequested: root.generateSheet()
-      onTextKey: function(t) {
-        if (t === "g" || t === "G") root.generateSheet()
-        else if (t === " ") root.toggleTimer()
-        else if (t === "s" || t === "S") root.savePractice()
-        else if (t >= "1" && t <= String(root.tabs.length)) root.activeTab = parseInt(t) - 1
+          event.accepted = true
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+          if (root.activeTab === 0 && !root.practiceMode && !root.settingsOpen && !root.busy) root.generateSheet()
+          event.accepted = true
+        } else if (event.key === Qt.Key_Space && root.practiceMode && !root.settingsOpen && root.activeTab === 0) {
+          root.toggleTimer(); event.accepted = true
+        }
       }
 
       Column {
+        id: panelContent
         anchors.fill: parent
         spacing: Style.space(10)
 
@@ -480,10 +526,11 @@ Panel {
           id: tabRow
           width: parent.width
           spacing: Style.space(4)
-          readonly property real tabWidth: (width - spacing * (root.tabs.length - 1)) / root.tabs.length
+          readonly property real tabWidth: (width - gearButton.implicitWidth - spacing * root.tabs.length) / root.tabs.length
           Repeater {
             model: root.tabs
             Button {
+              focusable: true
               required property var modelData
               required property int index
               width: tabRow.tabWidth
@@ -492,33 +539,39 @@ Panel {
               fontSize: Style.font.caption
               foreground: root.foreground
               fontFamily: root.fontFamily
-              selected: root.activeTab === index
+              selected: !root.settingsOpen && root.activeTab === index
               bordered: true
               horizontalPadding: Style.space(2)
               verticalPadding: Style.space(5)
-              onClicked: root.activeTab = index
+              onClicked: { root.settingsOpen = false; root.activeTab = index }
             }
           }
+          Button {
+            id: gearButton
+            focusable: true
+            iconText: "⚙"
+            tooltipText: "Print settings & students"
+            selected: root.settingsOpen
+            bordered: true
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: { root.settingsPage = "print"; root.settingsOpen = !root.settingsOpen }
+          }
+
         }
 
         PanelSeparator { foreground: root.foreground }
 
-        Flickable {
+        Item {
+          id: tabBody
           width: parent.width
-          height: Math.max(80, parent.height - y)
-          contentWidth: width
-          contentHeight: tabLoader.implicitHeight
-          clip: true
-          boundsBehavior: Flickable.StopAtBounds
-          flickableDirection: Flickable.VerticalFlick
-          ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          height: tabLoader.implicitHeight
 
           Loader {
             id: tabLoader
             width: parent.width
-            sourceComponent: root.activeTab === 1 ? practiceTab
-              : (root.activeTab === 2 ? studentsTab
-                : (root.activeTab === 3 ? progressTab : sheetTab))
+            sourceComponent: root.settingsOpen ? (root.settingsPage === "profile" ? profileTab : (root.settingsPage === "students" ? studentsTab : (root.settingsPage === "reprint" ? reprintTab : (root.settingsPage === "history" ? historyTab : settingsTab))))
+              : (root.activeTab === 1 ? progressTab : (root.practiceMode ? practiceTab : sheetTab))
           }
         }
       }
@@ -565,6 +618,15 @@ Panel {
         }
       }
 
+      Button {
+        visible: root.students.length === 0
+        text: "Add your first student"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.editProfile(true)
+      }
+
       AppSearchableDropdown {
         id: levelDrop
         width: parent.width
@@ -581,13 +643,175 @@ Panel {
         }
       }
 
+      BorderSurface {
+        width: parent.width
+        implicitHeight: sheetSummary.implicitHeight + Style.space(24)
+        radius: Style.cornerRadius
+        color: Style.normalFillFor(root.foreground, root.accent)
+        borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
+        Column {
+          id: sheetSummary
+          x: Style.space(12)
+          y: Style.space(12)
+          width: parent.width - Style.space(24)
+          spacing: Style.space(6)
+          Text {
+            text: "Ready to print · " + root.sheetCode
+            textFormat: Text.PlainText
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.subtitle
+            font.bold: true
+          }
+          Text {
+            width: parent.width
+            text: root.problemCount + " problems · " + (root.paperValue === "a4" ? "A4" : "Letter")
+              + (root.examplesOn ? " · worked example" : "")
+              + (root.answersOn ? " · answer key" : "")
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+      }
+
+      Row {
+        spacing: Style.space(8)
+        Button {
+          focusable: true
+          text: root.busy ? "Creating…" : "Create & open worksheet"
+          selected: true
+          iconText: "󰈟"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          enabled: !root.busy
+          onClicked: root.generateSheet()
+        }
+        Button {
+          focusable: true
+          visible: root.pdfPath !== ""
+          text: "Open PDF"
+          tooltipText: root.createdSheet ? "Sheet " + root.createdSheet.code : "Sheet " + root.sheetCode
+          enabled: root.pdfPath !== ""
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.openPath(root.pdfPath)
+        }
+        Button {
+          focusable: true
+          visible: root.answersPath !== ""
+          text: "Answers"
+          enabled: root.answersPath !== ""
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.openPath(root.answersPath)
+        }
+      }
+
+
+      Button {
+        focusable: true
+        text: root.timerOn ? "Practice · " + root.formatDuration(root.elapsedSec)
+          : (root.createdSheet ? "Record sheet " + root.createdSheet.code : "Record an existing worksheet")
+        iconText: "󰔟"
+        bordered: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.practiceCreatedSheet()
+      }
+    }
+  }
+
+  Component {
+    id: settingsTab
+    Column {
+      width: tabLoader.width
+      spacing: Style.space(12)
+      PanelSectionHeader {
+        text: "Print settings"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+      ButtonGroup {
+        width: parent.width
+        options: root.paperOptions
+        value: root.paperValue
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onChanged: function(v) {
+          root.paperValue = v
+          root.refresh()
+        }
+      }
+
+      Toggle {
+        width: parent.width
+        label: "Include a worked example"
+        description: "Worked example on vertical sheets."
+        checked: root.examplesOn
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: {
+          root.examplesOn = !root.examplesOn
+          root.refresh()
+        }
+      }
+
+      Toggle {
+        width: parent.width
+        label: "Answer key PDF"
+        checked: root.answersOn
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: {
+          root.answersOn = !root.answersOn
+          root.refresh()
+        }
+      }
+
+
+
+      Button {
+        text: "Reprint by sheet code →"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.settingsPage = "reprint"
+      }
+      Button {
+        text: "Students & report motifs →"
+        focusable: true
+        bordered: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.settingsPage = "students"
+      }
+    }
+  }
+
+  Component {
+    id: reprintTab
+    Column {
+      width: tabLoader.width
+      spacing: Style.space(12)
+      Button {
+        text: "← Print settings"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.settingsPage = "print"
+      }
+      PanelSectionHeader { text: "Reprint a worksheet"; foreground: root.foreground; fontFamily: root.fontFamily }
       Row {
         width: parent.width
         spacing: Style.space(10)
 
         NumberField {
           id: seedField
-          label: "Seed"
+          label: "Sheet number"
           value: root.seedValue
           from: 1
           to: 2147483646
@@ -630,94 +854,20 @@ Panel {
       Text {
         width: parent.width
         textFormat: Text.PlainText
-        text: "Any seed reprints the same one-page sheet. 1-1, 1-2, and 1-502 are three different level-1 worksheets."
+        text: "The same sheet code always prints the same problems."
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
       }
 
-      ButtonGroup {
-        width: parent.width
-        options: root.paperOptions
-        value: root.paperValue
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onChanged: function(v) {
-          root.paperValue = v
-          root.refresh()
-        }
-      }
-
-      Toggle {
-        width: parent.width
-        label: "Note box and hint digits"
-        description: "Worked example on vertical sheets."
-        checked: root.examplesOn
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: {
-          root.examplesOn = !root.examplesOn
-          root.refresh()
-        }
-      }
-
-      Toggle {
-        width: parent.width
-        label: "Answer key PDF"
-        checked: root.answersOn
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: {
-          root.answersOn = !root.answersOn
-          root.refresh()
-        }
-      }
-
-      Row {
-        spacing: Style.space(8)
-        Button {
-          text: root.busy ? "Creating…" : "Create worksheet"
-          iconText: "󰈟"
-          bordered: true
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          enabled: !root.busy
-          onClicked: root.generateSheet()
-        }
-        Button {
-          text: "Exercise"
-          enabled: root.pdfPath !== ""
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          onClicked: root.openPath(root.pdfPath)
-        }
-        Button {
-          visible: root.answersOn
-          text: "Answers"
-          enabled: root.answersPath !== ""
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          onClicked: root.openPath(root.answersPath)
-        }
-      }
-
-      Text {
-        width: parent.width
-        textFormat: Text.PlainText
-        text: root.problemCount + " problems on one page"
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-      }
-
       Button {
-        text: root.timerOn ? "Practice · " + root.formatDuration(root.elapsedSec) : "Time this sheet"
-        iconText: "󰔟"
+        text: "Use this sheet · " + root.sheetCode
+        focusable: true
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily
-        onClicked: root.activeTab = 1
+        onClicked: { root.practiceMode = false; root.activeTab = 0; root.settingsOpen = false }
       }
     }
   }
@@ -726,12 +876,40 @@ Panel {
     id: practiceTab
     Column {
       width: tabLoader.width
-      spacing: Style.space(12)
+      spacing: Style.space(10)
 
-      PanelSectionHeader {
-        text: "Practice session"
+      Button {
+        text: "← Prepare next worksheet"
+        focusable: true
         foreground: root.foreground
         fontFamily: root.fontFamily
+        onClicked: root.prepareNextSheet()
+      }
+
+      PanelSectionHeader {
+        text: "Record practice · " + root.sheetCode
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+
+      Row {
+        spacing: Style.space(8)
+        Button {
+          text: "Open worksheet"
+          focusable: true
+          enabled: root.pdfPath !== ""
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.openPath(root.pdfPath)
+        }
+        Button {
+          text: "Open answer key"
+          focusable: true
+          visible: root.answersPath !== ""
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.openPath(root.answersPath)
+        }
       }
 
       AppDropdown {
@@ -790,6 +968,7 @@ Panel {
       Row {
         spacing: Style.space(8)
         Button {
+          focusable: true
           text: root.timerOn ? "Pause" : "Start"
           iconText: root.timerOn ? "󰏤" : "󰐊"
           bordered: true
@@ -798,6 +977,7 @@ Panel {
           onClicked: root.toggleTimer()
         }
         Button {
+          focusable: true
           text: "Reset"
           foreground: root.foreground
           fontFamily: root.fontFamily
@@ -870,10 +1050,12 @@ Panel {
       }
 
       Button {
+        focusable: true
         text: "Save session"
+        selected: true
         iconText: "󰄬"
         bordered: true
-        enabled: root.studentId !== "" && !root.busy
+        enabled: root.studentId !== "" && !root.busy && root.problemCount > 0
         foreground: root.foreground
         fontFamily: root.fontFamily
         onClicked: {
@@ -903,97 +1085,154 @@ Panel {
     Column {
       width: tabLoader.width
       spacing: Style.space(12)
-
-      PanelSectionHeader {
-        text: "Students"
+      Button {
+        text: "← Print settings"
+        focusable: true
         foreground: root.foreground
         fontFamily: root.fontFamily
+        onClicked: root.settingsPage = "print"
       }
-
-      Row {
+      AppDropdown {
         width: parent.width
-        spacing: Style.space(8)
-        TextField {
-          id: nameField
-          width: parent.width - addBtn.implicitWidth - parent.spacing
-          placeholderText: "New student name"
-          text: root.newStudentName
-          foreground: root.foreground
-          onEditingFinished: root.newStudentName = text
-          onAccepted: {
-            root.newStudentName = text
-            root.addStudent()
-          }
-        }
-        Button {
-          id: addBtn
-          text: "Add"
-          bordered: true
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          onClicked: {
-            root.newStudentName = nameField.text
-            root.addStudent()
-          }
+        label: "Manage student"
+        value: root.studentId
+        options: root.studentOptions
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onChanged: function(v) { root.studentId = v; root.refresh() }
+      }
+      Button {
+        text: "Edit name & report motif"
+        enabled: root.studentId !== "" && !root.busy
+        focusable: true
+        bordered: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.editProfile(false)
+      }
+      Button {
+        text: "Add a student"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.editProfile(true)
+      }
+      PanelSeparator { foreground: root.foreground }
+      Button {
+        text: "Delete selected student"
+        enabled: root.studentId !== "" && !root.busy
+        focusable: true
+        foreground: root.urgent
+        fontFamily: root.fontFamily
+        onClicked: root.confirmKind = "student"
+      }
+    }
+  }
+
+  Component {
+    id: profileTab
+    Column {
+      width: tabLoader.width
+      spacing: Style.space(12)
+      Button {
+        text: "← Students"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.settingsPage = "students"
+      }
+      PanelSectionHeader { text: root.profileId ? "Student profile" : "New student"; foreground: root.foreground; fontFamily: root.fontFamily }
+      TextField {
+        id: profileName
+        width: parent.width
+        placeholderText: "Student name"
+        text: root.newStudentName
+        foreground: root.foreground
+        onTextEdited: root.newStudentName = text
+      }
+      ButtonGroup {
+        options: root.genderOptions
+        value: root.profileGender
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onChanged: function(v) {
+          root.profileGender = v
+          root.profileMotif = v === "male" ? "sports" : "flowers"
         }
       }
-
-      Repeater {
-        model: root.students
-        delegate: BorderSurface {
-          required property var modelData
-          width: parent.width
-          implicitHeight: Style.space(44)
-          radius: Style.cornerRadius
-          color: String(modelData.id) === root.studentId ? Style.selectedFillFor(root.foreground, root.accent) : "transparent"
-          borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
-
-          MouseArea {
-            anchors.fill: parent
-            onClicked: {
-              root.studentId = String(modelData.id)
-              root.activeTab = 3
-              root.refresh()
-            }
-          }
-
-          Text {
-            anchors.left: parent.left
-            anchors.leftMargin: Style.space(12)
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: modelData.name
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-          }
-
-          PanelActionButton {
-            anchors.right: parent.right
-            anchors.rightMargin: Style.space(8)
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: "󰧧"
-            tooltipText: "Delete"
-            foreground: root.foreground
-            hoverColor: root.urgent
-            fontFamily: root.fontFamily
-            onClicked: {
-              root.studentId = String(modelData.id)
-              root.confirmKind = "student"
-            }
-          }
-        }
+      AppDropdown {
+        width: parent.width
+        label: "Report motif"
+        value: root.profileMotif
+        options: root.motifOptions
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onChanged: function(v) { root.profileMotif = v }
       }
-
       Text {
-        visible: root.students.length === 0
         width: parent.width
+        text: "A personal touch for their printable math journey. You can change it anytime."
         textFormat: Text.PlainText
-        text: "Add a student to record times and follow progress."
+        wrapMode: Text.WordWrap
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
+      }
+      Button {
+        text: root.profileId ? "Save profile" : "Add student"
+        enabled: String(root.newStudentName).trim() !== "" && !root.busy
+        selected: true
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.saveProfile(profileName.text)
+      }
+    }
+  }
+
+  Component {
+    id: historyTab
+    Column {
+      width: tabLoader.width
+      spacing: Style.space(12)
+      Button {
+        text: "← Progress"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: { root.settingsOpen = false; root.activeTab = 1 }
+      }
+      PanelSectionHeader { text: "Recent practice entries"; foreground: root.foreground; fontFamily: root.fontFamily }
+      Repeater {
+        model: root.recentSessions
+        Item {
+          required property var modelData
+          width: parent.width
+          implicitHeight: Style.space(58)
+          Column {
+            width: parent.width - deleteEntry.implicitWidth - Style.space(12)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(4)
+            Text { width: parent.width; elide: Text.ElideRight; text: modelData.taken_at + " · Sheet " + modelData.sheet_code; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.body }
+            Text { width: parent.width; elide: Text.ElideRight; text: root.formatDuration(modelData.duration_seconds) + " · " + root.scoreLabel(modelData) + " correct"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+          }
+          PanelActionButton {
+            id: deleteEntry
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: "󰧧"
+            tooltipText: "Delete practice entry"
+            foreground: root.foreground
+            hoverColor: root.urgent
+            fontFamily: root.fontFamily
+            onClicked: { root.confirmSessionId = Number(modelData.id); root.confirmKind = "session" }
+          }
+        }
+      }
+      Row {
+        spacing: Style.space(8)
+        Button { text: "← Newer"; enabled: root.sessionPage > 0; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: root.sessionPage-- }
+        Button { text: "Older →"; enabled: (root.sessionPage + 1) * 3 < root.sessions.length; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: root.sessionPage++ }
       }
     }
   }
@@ -1003,13 +1242,6 @@ Panel {
     Column {
       width: tabLoader.width
       spacing: Style.space(12)
-
-      PanelSectionHeader {
-        text: root.studentName !== "" ? root.studentName : "Progress"
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-      }
-
       AppDropdown {
         width: parent.width
         label: "Student"
@@ -1017,366 +1249,88 @@ Panel {
         options: root.studentOptions
         foreground: root.foreground
         fontFamily: root.fontFamily
-        onChanged: function(v) {
-          root.studentId = v
-          root.refresh()
-        }
+        onChanged: function(v) { root.studentId = v; root.refresh() }
       }
-
       Text {
-        visible: root.studentId === ""
+        visible: !root.report.has_data
         width: parent.width
+        text: root.studentId === "" ? "Choose a student to see their math journey." : "Every journey starts with one sheet. Their first saved practice will appear here."
         textFormat: Text.PlainText
-        text: "Pick a student to see sheets per day, skipped days, accuracy, and how times drop on each level."
+        wrapMode: Text.WordWrap
         color: root.dim
         font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
+        font.pixelSize: Style.font.body
       }
-
-      Text {
-        visible: root.studentId !== "" && !root.report.has_data
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "Save a practice session to see statistics."
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-      }
-
-      Column {
+      Grid {
+        id: overviewGrid
         visible: root.report.has_data
         width: parent.width
-        spacing: Style.space(12)
-
-        Text {
-          width: parent.width
-          textFormat: Text.PlainText
-          text: root.report.headline || ""
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
-        }
-
-        Row {
-          id: cardRow
-          width: parent.width
-          spacing: Style.space(8)
-          Repeater {
-            model: root.reportCardItems
-            BorderSurface {
-              required property var modelData
-              width: (cardRow.width - cardRow.spacing * 3) / 4
-              implicitHeight: Style.space(72)
-              radius: Style.cornerRadius
-              color: Style.normalFillFor(root.foreground, root.accent)
-              borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
-
-              Column {
-                anchors.fill: parent
-                anchors.margins: Style.space(8)
-                spacing: Style.space(2)
-                Text {
-                  textFormat: Text.PlainText
-                  text: modelData.label
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                }
-                Text {
-                  textFormat: Text.PlainText
-                  text: modelData.value
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.subtitle
-                  font.bold: true
-                }
-                Text {
-                  textFormat: Text.PlainText
-                  text: modelData.detail
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  elide: Text.ElideRight
-                  width: parent.width
-                }
-              }
-            }
-          }
-        }
-
-        PanelSectionHeader {
-          text: "Last 14 days"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-        }
-
-        Row {
-          id: dayRow
-          width: parent.width
-          spacing: Style.space(4)
-          Repeater {
-            model: root.report.days || []
-            Item {
-              required property var modelData
-              width: (dayRow.width - dayRow.spacing * 13) / 14
-              height: Style.space(56)
-
-              Rectangle {
-                id: dayDot
-                width: Math.min(parent.width - 2, Style.space(22))
-                height: width
-                radius: width / 2
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.top: parent.top
-                color: {
-                  if (modelData.count > 0) return root.accent
-                  return "transparent"
-                }
-                opacity: modelData.before_start || modelData.future ? 0.35 : 1
-                border.width: 1
-                border.color: {
-                  if (modelData.skipped) return root.urgent
-                  if (modelData.count > 0) return root.accent
-                  return root.dim
-                }
-
-                Text {
-                  anchors.centerIn: parent
-                  visible: modelData.count > 0
-                  textFormat: Text.PlainText
-                  text: String(modelData.count)
-                  color: Color.background
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                }
-              }
-
-              Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                textFormat: Text.PlainText
-                text: modelData.letter
-                color: modelData.skipped ? root.urgent : root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-            }
-          }
-        }
-
-        Text {
-          width: parent.width
-          textFormat: Text.PlainText
-          text: root.report.range_skipped
-            ? (root.report.range_skipped + (root.report.range_skipped === 1 ? " day skipped" : " days skipped")
-              + " since they started · filled dots are sheets that day")
-            : "Practiced every day in this window · filled dots are sheets that day"
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
-        }
-
-        PanelSectionHeader {
-          text: "Sheets per week"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-        }
-
-        Row {
-          id: weekRow
-          width: parent.width
-          height: Style.space(72)
-          spacing: Style.space(6)
-          Repeater {
-            model: root.report.weeks || []
-            Item {
-              required property var modelData
-              width: (weekRow.width - weekRow.spacing * 7) / 8
-              height: weekRow.height
-
-              Rectangle {
-                id: weekBar
-                width: Math.max(Style.space(10), parent.width - Style.space(4))
-                height: {
-                  var maxW = Math.max(1, Number(root.report.max_week || 0))
-                  var h = parent.height - Style.space(22)
-                  if (!(modelData.count > 0)) return Style.space(3)
-                  return Math.max(Style.space(6), h * modelData.count / maxW)
-                }
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: weekLbl.top
-                anchors.bottomMargin: Style.space(4)
-                radius: Style.cornerRadius
-                color: modelData.current ? root.accent : root.foreground
-                opacity: modelData.current ? 1 : 0.35
-              }
-
-              Text {
-                id: weekLbl
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                textFormat: Text.PlainText
-                text: modelData.label
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-            }
-          }
-        }
-
-        PanelSectionHeader {
-          text: "Time per exercise"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-        }
-
+        columns: 2
+        spacing: Style.space(8)
         Repeater {
-          model: root.report.levels || []
+          model: root.reportCardItems
           BorderSurface {
             required property var modelData
-            width: parent.width
-            implicitHeight: levelCol.implicitHeight + Style.space(24)
+            width: (overviewGrid.width - overviewGrid.spacing) / 2
+            implicitHeight: Style.space(78)
             radius: Style.cornerRadius
             color: Style.normalFillFor(root.foreground, root.accent)
             borderSpec: Border.controlSpec("normal", root.foreground, root.accent)
-
             Column {
-              id: levelCol
-              property var sparkPoints: modelData.spark || []
-              x: Style.space(12)
-              y: Style.space(12)
-              width: parent.width - Style.space(24)
-              spacing: Style.space(6)
-
-              Text {
-                width: parent.width
-                textFormat: Text.PlainText
-                text: "Level " + modelData.level + "  " + root.levelTitle(modelData.level)
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                font.bold: true
-                elide: Text.ElideRight
-              }
-
-              Text {
-                width: parent.width
-                textFormat: Text.PlainText
-                text: modelData.sessions + (modelData.sessions === 1 ? " sheet" : " sheets")
-                  + " · best " + (modelData.best_pace_label || root.formatDuration(modelData.best_seconds))
-                  + (modelData.accuracy_pct === null || modelData.accuracy_pct === undefined
-                    ? ""
-                    : " · " + root.pctLabel(modelData.accuracy_pct) + " correct")
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-
-              Row {
-                id: sparkRow
-                width: parent.width
-                height: Style.space(44)
-                spacing: Style.space(3)
-                Repeater {
-                  model: levelCol.sparkPoints
-                  Rectangle {
-                    required property var modelData
-                    required property int index
-                    width: {
-                      var n = Math.max(1, levelCol.sparkPoints.length)
-                      return Math.max(4, (sparkRow.width - sparkRow.spacing * (n - 1)) / n)
-                    }
-                    height: Math.max(Style.space(4), sparkRow.height * Number(modelData.height || 0.2))
-                    anchors.bottom: parent.bottom
-                    radius: 2
-                    color: root.accent
-                    opacity: 0.35 + 0.65 * (1 - Number(modelData.height || 0.5))
-                  }
-                }
-              }
-
-              Text {
-                width: parent.width
-                textFormat: Text.PlainText
-                text: modelData.pace_label
-                color: modelData.trend === "slower" ? root.urgent : root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                wrapMode: Text.WordWrap
-              }
-            }
-          }
-        }
-
-        PanelSeparator { foreground: root.foreground }
-
-        PanelSectionHeader {
-          text: "Sessions"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-        }
-      }
-
-      Repeater {
-        model: root.studentId === "" ? [] : root.sessions
-        delegate: Item {
-          required property var modelData
-          width: parent.width
-          implicitHeight: Style.space(48)
-
-          Column {
-            anchors.left: parent.left
-            anchors.right: delBtn.left
-            anchors.rightMargin: Style.space(8)
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(2)
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: modelData.taken_at + "  " + modelData.sheet_code
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              elide: Text.ElideRight
-            }
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: root.formatDuration(modelData.duration_seconds)
-                + root.perExerciseLabel(modelData)
-                + " · " + root.scoreLabel(modelData)
-                + (modelData.notes ? " · " + modelData.notes : "")
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideRight
-            }
-          }
-
-          PanelActionButton {
-            id: delBtn
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: "󰧧"
-            tooltipText: "Delete session"
-            foreground: root.foreground
-            hoverColor: root.urgent
-            fontFamily: root.fontFamily
-            onClicked: {
-              root.confirmSessionId = Number(modelData.id)
-              root.confirmKind = "session"
+              anchors.fill: parent
+              anchors.margins: Style.space(8)
+              spacing: Style.space(2)
+              Text { text: modelData.label; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              Text { text: modelData.value; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.subtitle; font.bold: true }
+              Text { width: parent.width; text: modelData.detail; elide: Text.ElideRight; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             }
           }
         }
       }
+      PanelSeparator { foreground: root.foreground }
+      PanelSectionHeader { text: "Their math journey · a family keepsake"; foreground: root.foreground; fontFamily: root.fontFamily }
+      Text {
+        width: parent.width
+        text: "A happy, personal report to print, save as PDF, or put on the TV."
+        textFormat: Text.PlainText
+        wrapMode: Text.WordWrap
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+      ButtonGroup {
+        options: [{value: "month", label: "Last 30 days"}, {value: "all", label: "All practice"}]
+        value: root.reportPeriod
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onChanged: function(v) { root.reportPeriod = v }
+      }
+      Button {
+        text: root.busy ? "Preparing report…" : "Open beautiful report"
+        enabled: root.studentId !== "" && !root.busy
+        selected: true
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.run("export-report", {student_id: Number(root.studentId), period: root.reportPeriod})
+      }
+      Button {
+        text: "Change their report motif"
+        enabled: root.studentId !== "" && !root.busy
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.editProfile(false)
+      }
+      Button {
+        visible: root.studentId !== "" && root.sessions.length > 0
+        text: "Review practice entries"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: { root.settingsPage = "history"; root.settingsOpen = true; root.sessionPage = 0 }
+      }
+
     }
   }
 }

@@ -206,6 +206,17 @@ class SaveSessionScoreTest(unittest.TestCase):
         self.assertEqual(data["sheet_code"], "2-2")
         self.assertEqual(data["problem_count"], 35)
 
+    def test_snapshot_sessions_are_newest_first(self):
+        store.set_setting("student_id", self.sid)
+        # Worksheet order and save order both differ from practice dates.
+        store.add_session(self.sid, "1-3", 1, 3, "2026-10-01", 90, score=25, score_max=25)
+        newest = store.add_session(self.sid, "1-1", 1, 1, "2026-10-03", 80, score=25, score_max=25)
+        store.add_session(self.sid, "1-2", 1, 2, "2026-10-02", 85, score=25, score_max=25)
+        data = self.cli.snapshot(self.cli.current_settings())
+        self.assertEqual(data["sessions"][0]["id"], newest["id"])
+        self.assertEqual([r["taken_at"] for r in data["sessions"]],
+                         ["2026-10-03", "2026-10-02", "2026-10-01"])
+
 
 if __name__ == "__main__":
     unittest.main()

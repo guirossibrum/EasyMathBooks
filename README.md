@@ -29,15 +29,27 @@ Dependencies: Python 3, [reportlab](https://pypi.org/project/reportlab/)
 
 ## Usage
 
-Click the calculator icon to open the panel. Pick a level and any seed, or
-type a sheet code such as `1-502`. Create writes one full page and opens it.
-On the Practice tab, Start the timer when they begin, or type minutes and
-seconds after they finish. Enter how many were correct, then save. The
-Progress tab shows sheets per day and week, skipped days, percent correct,
-and time per exercise on each level (so a 25-problem example page and a
-35-problem full page can be compared). Picking a student jumps to their
-highest level and the next unused seed; Create then advances the seed
-so you can print the next sheet.
+Click the calculator icon to open the compact widget. On **Worksheet**, choose
+student and level, then **Create & open worksheet**. The app opens the PDF and
+moves to practice for that exact sheet. Start the timer or enter minutes and
+seconds afterward, record the number correct, and save. Saving opens **Progress**.
+Use **Prepare next worksheet** when printing several sheets.
+
+The **gear** holds paper size, worked examples, answer keys, reprinting by sheet
+code, and student management. Student profiles offer Male/Female and three
+report motifs for each: flowers/unicorns/butterflies or sports/cars/airplanes.
+Existing students keep their records and use a neutral stars report until a
+profile is chosen. Widget pages fit without scrolling; recent practice entries
+use pagination.
+
+On **Progress**, open a personal **math journey** report for the last 30 days or
+all practice. The self-contained HTML report opens locally in the browser:
+print it, save it as PDF, show the detailed practice journal, or use **TV view**.
+Reports live under `~/.local/share/easymathbooks/output/reports/`. There are no
+external fonts, images, accounts, or network requests.
+
+See the [UI review gallery](docs/ui-review/README.md) for fictional student
+screenshots, all six printable report designs, and the TV preview.
 
 Escape closes the panel. Right-click the icon to print the current sheet.
 
