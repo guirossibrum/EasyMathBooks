@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Omarchy watches this directory recursively: bytecode writes can reload the widget.
+export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}/easymathbooks"
 VENV="$DATA/venv"
@@ -19,4 +21,4 @@ if ! "$PY" -c "import reportlab" >/dev/null 2>&1; then
   PY="$VENV/bin/python"
 fi
 
-exec "$PY" "$ROOT/cli.py" "$@"
+exec "$PY" -B "$ROOT/cli.py" "$@"

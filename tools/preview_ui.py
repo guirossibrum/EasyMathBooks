@@ -73,12 +73,90 @@ function verifyFlow(data) {
   demoWindow.check(review.confirmKind === "notifications", "First reminder enable must ask permission")
   demoWindow.check(!review.selectedStudent.weekly_reminder, "Asking permission must not enable a reminder")
   review.confirmKind = ""
-  review.settingsOpen = false
-  review.activeTab = 0
+  review.switchRoot(0)
+  review.navigate("unfinished")
+  demoWindow.check(!review.settingsOpen && review.backLabel === "← Worksheet", "Reprinting must belong to Worksheet")
+  var nextCode = review.sheetCode
+  review.navigate("reprint")
+  review.reprintCode = "2-2"
+  review.goBack()
+  demoWindow.check(review.currentPage === "unfinished" && review.sheetCode === nextCode, "Back from reprint must preserve upcoming worksheet")
+  review.goBack()
+  demoWindow.check(review.currentPage === "worksheet", "Back must return one level")
+  review.switchRoot(1)
+  review.editProfile(false)
+  var profileSaved = JSON.parse(JSON.stringify(data))
+  profileSaved.profile_saved = profileSaved.students[0]
+  review.applySnap(profileSaved)
+  demoWindow.check(review.currentPage === "progress", "Saving a motif must return to its actual caller")
+  review.navigate("reports")
+  demoWindow.check(!review.settingsOpen, "Weekly reports opened from Progress must not enter Settings")
+  review.toggleSettings()
+  review.navigate("reminders")
+  review.reminderDaysDraft = 8
+  review.reminderTimeDraft = "20:15"
+  var preferences = JSON.parse(JSON.stringify(data))
+  preferences.options_saved = true
+  review.applySnap(preferences)
+  demoWindow.check(review.currentPage === "reminders", "Saving reminders must keep the same page")
+  review.goBack()
+  demoWindow.check(review.currentPage === "settings", "Reminder Back must return to Settings")
+  review.navigate("reminders")
+  demoWindow.check(review.reminderDaysDraft === 8 && review.reminderTimeDraft === "20:15", "Back must preserve reminder form drafts")
+  review.goBack()
+  review.goBack()
+  demoWindow.check(review.currentPage === "reports", "Settings Back must restore its caller")
+  review.finishHelper(1, '{"ok":false,"error":"Test failure"}')
+  demoWindow.check(!review.busy && review.currentPage === "reports", "Failed helpers must release busy state and preserve navigation")
+  review.lastError = ""
+  review.switchRoot(0)
+  review.reminderDraftStudent = ""
   review.lastMessage = ""
   console.log("PASS: create → practice → next sheet → save → progress; code and PDF identity")
 }
 '''
+
+
+def prepare_ui_component(base, mock_helper=True):
+    for name in ("Commons", "Ui"):
+        (base / name).symlink_to(Path("/usr/share/omarchy/shell") / name)
+    for name in ("AppDropdown.qml", "AppSearchableDropdown.qml"):
+        (base / name).write_text((ROOT / name).read_text())
+    source = (ROOT / "Panel.qml").read_text()
+    source = source.replace('Panel {\n  id: root', '''Rectangle {
+  id: root
+  color: Color.popups.background
+  property var bar: null
+  property bool opened: true
+  property string moduleName
+  property string ipcTarget
+  property bool manageIpc
+  property var demoCommand: ({})
+  function open() { opened = true }
+  function close() { opened = false }
+  function toggle() { opened = !opened }''', 1)
+    if mock_helper:
+        a = source.index('  function run(cmd, payload) {')
+        b = source.index('  function finishHelper(', a)
+        source = source[:a] + '''  function run(cmd, payload) {
+        demoCommand = {cmd: cmd, payload: payload}
+      }
+
+    ''' + source[b:]
+        source = source.replace('  function refresh() { run("snapshot", hydrated ? selectionPayload() : ({})) }',
+                                '  function refresh() {}')
+    source = source.replace('    Quickshell.execDetached(["xdg-open", path])', '')
+    source = source.replace('  Component.onCompleted: refresh()', '')
+    source = source.replace('  property bool hydrated: false', '  readonly property real demoContentHeight: panelContent.implicitHeight\n  property bool hydrated: false')
+    a = source.index('  KeyboardPanel {')
+    b = source.index('\n', source.index('    contentHeight:', a))
+    source = source[:a] + '  Item {\n    id: panel\n    anchors.fill: parent\n' + source[b:]
+    source = source.replace('    anchors.fill: parent\n    bar: root.bar\n    text: "󰃬"',
+                            '    visible: false\n    bar: root.bar\n    text: "󰃬"')
+    start = source.index('  readonly property string cli:')
+    end = source.index('\n', start)
+    source = source[:start] + '  readonly property string cli: ' + json.dumps(str(ROOT / 'bin/easymath-cli')) + source[end:]
+    (base / "ReviewPanel.qml").write_text(source)
 
 
 def main():
@@ -96,41 +174,7 @@ def main():
         shutil.copy2(demo_db, store.db_path())
         store.init_db()
         (base / "fixture.json").write_text(json.dumps(cli.snapshot()))
-        for name in ("Commons", "Ui"):
-            (base / name).symlink_to(Path("/usr/share/omarchy/shell") / name)
-        for name in ("AppDropdown.qml", "AppSearchableDropdown.qml"):
-            (base / name).write_text((ROOT / name).read_text())
-        source = (ROOT / "Panel.qml").read_text()
-        source = source.replace('Panel {\n  id: root', '''Rectangle {
-  id: root
-  color: Color.popups.background
-  property var bar: null
-  property bool opened: true
-  property string moduleName
-  property string ipcTarget
-  property bool manageIpc
-  property var demoCommand: ({})
-  function open() { opened = true }
-  function close() { opened = false }
-  function toggle() { opened = !opened }''', 1)
-        a = source.index('  function run(cmd, payload) {')
-        b = source.index('  function scheduleRefresh()', a)
-        source = source[:a] + '''  function run(cmd, payload) {
-    demoCommand = {cmd: cmd, payload: payload}
-  }
-
-''' + source[b:]
-        source = source.replace('  function refresh() { run("snapshot", hydrated ? selectionPayload() : ({})) }',
-                                '  function refresh() {}')
-        source = source.replace('    Quickshell.execDetached(["xdg-open", path])', '')
-        source = source.replace('  Component.onCompleted: refresh()', '')
-        source = source.replace('  property bool hydrated: false', '  readonly property real demoContentHeight: panelContent.implicitHeight\n  property bool hydrated: false')
-        a = source.index('  KeyboardPanel {')
-        b = source.index('\n', source.index('    contentHeight:', a))
-        source = source[:a] + '  Item {\n    id: panel\n    anchors.fill: parent\n' + source[b:]
-        source = source.replace('    anchors.fill: parent\n    bar: root.bar\n    text: "󰃬"',
-                                '    visible: false\n    bar: root.bar\n    text: "󰃬"')
-        (base / "ReviewPanel.qml").write_text(source)
+        prepare_ui_component(base)
         (base / "shell.qml").write_text('''import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -152,10 +196,14 @@ ShellRoot {
           var data = JSON.parse(fixture.text())
           review.applySnap(data)
           demoWindow.verifyFlow(data)
-          review.activeTab = Number(Quickshell.env("REVIEW_TAB") || 0)
-          review.settingsOpen = Quickshell.env("REVIEW_SETTINGS") === "1"
-          review.settingsPage = Quickshell.env("REVIEW_PAGE") || "print"
-          if (review.settingsPage === "profile") review.editProfile(false)
+          review.switchRoot(Number(Quickshell.env("REVIEW_TAB") || 0))
+          if (Quickshell.env("REVIEW_SETTINGS") === "1") {
+            var target = Quickshell.env("REVIEW_PAGE") || "settings"
+            if (target === "reports" || target === "history") review.switchRoot(1)
+            if (["print", "students", "profile", "reminders"].indexOf(target) !== -1) review.navigate("settings")
+            if (target === "profile") { review.navigate("students"); review.editProfile(false) }
+            else review.navigate(target)
+          }
           if (Quickshell.env("REVIEW_PRACTICE") === "1") {
             data.settings.variant = 16
             data.generated = {code: "1-15", problem_count: 25,
@@ -192,6 +240,7 @@ ShellRoot {
             ("worksheet", 456, {}),
             ("practice", 676, {"REVIEW_PRACTICE": "1"}),
             ("settings", 676, {"REVIEW_SETTINGS": "1"}),
+            ("print-options", 676, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "print"}),
             ("progress", 676, {"REVIEW_TAB": "1"}),
             ("students", 536, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "students"}),
             ("profile", 536, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "profile"}),

@@ -253,7 +253,7 @@ def latest_sheet(sheet_code, student_id=None):
     with session() as conn:
         if student_id is None:
             row = conn.execute(
-                "SELECT * FROM sheets WHERE sheet_code = ? ORDER BY id DESC LIMIT 1",
+                "SELECT * FROM sheets WHERE sheet_code = ? AND student_id IS NULL ORDER BY id DESC LIMIT 1",
                 (sheet_code,),
             ).fetchone()
         else:
@@ -261,7 +261,7 @@ def latest_sheet(sheet_code, student_id=None):
                 """
                 SELECT * FROM sheets
                 WHERE sheet_code = ? AND (student_id IS ? OR student_id IS NULL)
-                ORDER BY (student_id IS NOT ?) DESC, id DESC
+                ORDER BY (student_id IS ?) DESC, id DESC
                 LIMIT 1
                 """,
                 (sheet_code, student_id, student_id),

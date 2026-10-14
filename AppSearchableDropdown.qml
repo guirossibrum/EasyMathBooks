@@ -160,7 +160,7 @@ Item {
 
   Item {
     id: layer
-    parent: Overlay.overlay ? Overlay.overlay : (root.Window.window ? root.Window.window.contentItem : root)
+    parent: root.Overlay.overlay ? root.Overlay.overlay : (root.Window.window ? root.Window.window.contentItem : root)
     visible: root.menuOpen && parent
     anchors.fill: parent
     z: 10000

@@ -2,6 +2,9 @@
 from datetime import date, timedelta
 from html import escape
 from pathlib import Path
+import hashlib
+import os
+import tempfile
 
 from store import default_output_dir, progress_report, format_duration
 from encouragement import weekly_message
@@ -122,6 +125,14 @@ def write_report(student, sessions, period="week", today=None, paper="letter", w
     start, end = report_range(period, today, week_start)
     folder = default_output_dir() / "reports"
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f'student-{int(student["id"])}-{start or "all"}-{end}.html'
-    path.write_text(html, encoding="utf-8")
+    digest = hashlib.sha256(html.encode("utf-8")).hexdigest()[:12]
+    path = folder / f'student-{int(student["id"])}-{start or "all"}-{end}-{digest}.html'
+    if not path.exists():
+        handle, temporary = tempfile.mkstemp(prefix=".report-", suffix=".tmp", dir=folder)
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as output:
+                output.write(html)
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
     return path

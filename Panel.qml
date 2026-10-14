@@ -26,11 +26,67 @@ Panel {
   property string lastError: ""
   property string lastMessage: ""
   property bool busy: false
-  property string pendingCmd: ""
-  property var pendingPayload: ({})
+  property var commandQueue: []
   property int activeTab: 0
-  property bool settingsOpen: false
-  property string settingsPage: "print"
+  property string currentPage: "worksheet"
+  property var backStack: []
+  readonly property bool settingsOpen: currentPage === "settings" || backStack.indexOf("settings") !== -1
+  readonly property bool practiceMode: currentPage === "practice"
+  readonly property bool canGoBack: backStack.length > 0
+  readonly property var pageTitles: ({worksheet: "Worksheet", progress: "Progress", practice: "Practice",
+    settings: "Settings", print: "Print options", reports: "Weekly reports", reminders: "Reminders",
+    students: "Students", profile: "Student profile", unfinished: "Reprint worksheet", reprint: "Reprint by code", history: "Practice entries"})
+  readonly property string backLabel: canGoBack ? "← " + pageTitles[backStack[backStack.length-1]] : ""
+  property string reprintCode: ""
+  property string reminderDraftStudent: ""
+  property int reminderDaysDraft: 3
+  property string reminderTimeDraft: "18:00"
+
+  function ensureReminderDraft() {
+    if (reminderDraftStudent === studentId) return
+    reminderDraftStudent = studentId
+    reminderDaysDraft = Number(selectedStudent.missed_days || 3)
+    reminderTimeDraft = selectedStudent.reminder_time || "18:00"
+  }
+
+  function navigate(page) {
+    if (!pageTitles[page] || page === currentPage) return
+    lastError = ""
+    if (page === "reminders") ensureReminderDraft()
+    backStack = backStack.concat([currentPage])
+    currentPage = page
+  }
+
+  function switchRoot(tab) {
+    lastError = ""
+    activeTab = tab
+    currentPage = tab === 1 ? "progress" : "worksheet"
+    backStack = []
+  }
+
+  function goBack() {
+    if (!canGoBack) return
+    lastError = ""
+    var target = backStack[backStack.length-1]
+    if (currentPage === "practice" && target === "worksheet" && nextSheetCode) applyCode(nextSheetCode)
+    backStack = backStack.slice(0, -1)
+    currentPage = target
+  }
+
+  function toggleSettings() {
+    if (!settingsOpen) { navigate("settings"); return }
+    while (canGoBack && currentPage !== "settings") goBack()
+    goBack()
+  }
+
+  function generateCode(code) {
+    var parsed = parseCode(code)
+    if (!parsed) { lastError = "Use a sheet code such as 2-2."; return }
+    var payload = selectionPayload()
+    payload.level = parsed.level
+    payload.variant = parsed.seed
+    run("generate", payload)
+  }
   property string profileId: ""
   property string profileGender: "female"
   property string profileMotif: "flowers"
@@ -93,8 +149,7 @@ Panel {
         }
       }
     }
-    settingsOpen = true
-    settingsPage = "profile"
+    navigate("profile")
   }
 
   function saveProfile(name) {
@@ -104,11 +159,11 @@ Panel {
       name: name, gender: profileGender, motif: profileMotif
     })
   }
-  property bool practiceMode: false
   property string nextSheetCode: ""
 
   function prepareNextSheet() {
-    practiceMode = false
+    if (canGoBack) goBack()
+    else switchRoot(0)
     if (nextSheetCode) applyCode(nextSheetCode)
   }
   property string studentId: ""
@@ -125,6 +180,7 @@ Panel {
   property double timerStarted: 0
   property double nowMs: Date.now()
   property string confirmKind: ""
+  onConfirmKindChanged: if (confirmKind !== "") Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   property int confirmSessionId: 0
   property string codeDraft: ""
   property bool hydrated: false
@@ -137,6 +193,7 @@ Panel {
     sessionPage = 0
     reportWeek = ""
     unfinishedCode = ""
+    reminderDraftStudent = ""
     resetTimer()
     scoreValue = 0
     notesText = ""
@@ -144,9 +201,7 @@ Panel {
 
   function practiceCreatedSheet() {
     if (createdSheet) applyCode(createdSheet.code)
-    practiceMode = true
-    settingsOpen = false
-    activeTab = 0
+    navigate("practice")
   }
 
   readonly property var tabs: [
@@ -243,14 +298,36 @@ Panel {
 
   function run(cmd, payload) {
     if (busy) {
-      pendingCmd = cmd
-      pendingPayload = payload || ({})
+      if (cmd === "check-reminders") return
+      var queue = commandQueue.slice()
+      // A later selection supersedes only the last queued snapshot, never a save.
+      if (cmd === "snapshot" && queue.length && queue[queue.length-1].cmd === "snapshot") queue.pop()
+      queue.push({cmd: cmd, payload: payload || ({})})
+      commandQueue = queue
       return
     }
     lastError = ""
     busy = true
     helper.command = [root.cli, cmd, JSON.stringify(payload || ({}))]
     helper.running = true
+  }
+
+  function finishHelper(exitCode, output) {
+    busy = false
+    try {
+      var data = JSON.parse(String(output || "").trim())
+      if (!data.ok || exitCode !== 0) lastError = String(data.error || "The helper could not finish. Try refreshing.")
+      else if (!data.reminders_checked) applySnap(data)
+    } catch (e) {
+      lastError = "The helper returned no usable response. Saved records are preserved; try refreshing."
+    }
+    Qt.callLater(function() {
+      if (root.busy || !root.commandQueue.length) return
+      var queue = root.commandQueue.slice()
+      var next = queue.shift()
+      root.commandQueue = queue
+      root.run(next.cmd, next.payload)
+    })
   }
 
   function scheduleRefresh() { snapWait.restart() }
@@ -291,13 +368,12 @@ Panel {
       practiceCreatedSheet()
     }
     if (data.report_document) openPath(data.report_document.path)
+    if (currentPage === "reminders") ensureReminderDraft()
     if (data.options_saved) lastMessage = "Preferences saved"
-    if (data.profile_saved) { settingsPage = "students"; lastMessage = "Student profile saved" }
+    if (data.profile_saved) { goBack(); lastMessage = "Student profile saved" }
     if (data.student) {
       newStudentName = ""
-      settingsOpen = false
-      practiceMode = false
-      activeTab = 0
+      goBack()
     }
     if (data.saved) {
       lastMessage = "Saved " + data.saved.sheet_code + " in " + formatDuration(data.saved.duration_seconds)
@@ -305,10 +381,9 @@ Panel {
       resetTimer()
       scoreValue = 0
       notesText = ""
-      practiceMode = false
       createdSheet = null
       nextSheetCode = ""
-      activeTab = 1
+      switchRoot(1)
     }
   }
 
@@ -439,36 +514,17 @@ Panel {
     interval: 60000
     repeat: true
     running: root.hydrated
-    onTriggered: if (!root.busy && root.pendingCmd === "") root.run("check-reminders", {})
+    onTriggered: if (!root.busy && root.commandQueue.length === 0) root.run("check-reminders", {})
   }
 
   Process {
     id: helper
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.busy = false
-        var data = null
-        try { data = JSON.parse(String(text || "").trim() || "{}") }
-        catch (e) { root.lastError = "Could not read EasyMathBooks helper output."; return }
-        if (!data.ok) {
-          root.lastError = String(data.error || "That did not work.")
-        } else if (!data.reminders_checked) {
-          root.applySnap(data)
-        }
-        if (root.pendingCmd !== "") {
-          var cmd = root.pendingCmd
-          var payload = root.pendingPayload
-          root.pendingCmd = ""
-          root.pendingPayload = ({})
-          root.run(cmd, payload)
-        }
-      }
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: if (text.trim() !== "") console.warn("easymath", text.trim())
-    }
+    stdout: StdioCollector { id: helperOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode, exitStatus) { root.finishHelper(exitCode, helperOutput.text) }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!helper.running && root.busy) root.finishHelper(-1, helperOutput.text)
+    })
   }
 
   IpcHandler {
@@ -481,19 +537,17 @@ Panel {
     function refresh(): string { root.refresh(); return "ok" }
     function preferences(section: string): string {
       if (["print", "reports", "reminders", "unfinished", "students"].indexOf(section) === -1) return "unknown"
-      root.settingsPage = section
-      root.settingsOpen = true
+      root.navigate(section)
       root.open()
       return section
     }
     function tab(name: string): string {
       var n = String(name || "").toLowerCase()
-      root.settingsOpen = false
-      if (n === "progress" || n === "3") root.activeTab = 1
+      if (n === "progress" || n === "3") root.switchRoot(1)
       else {
-        root.activeTab = 0
-        root.practiceMode = n === "practice" || n === "1"
-        root.settingsOpen = n === "students" || n === "2"
+        root.switchRoot(0)
+        if (n === "practice" || n === "1") root.navigate("practice")
+        if (n === "students" || n === "2") root.navigate("students")
       }
       root.open()
       return String(root.activeTab)
@@ -527,16 +581,16 @@ Panel {
       anchors.fill: parent
       focus: true
       Keys.onPressed: function(event) {
-        if (root.confirmKind !== "") return
-        if (event.key === Qt.Key_Escape) { root.close(); event.accepted = true }
+        if (root.confirmKind !== "") { event.accepted = confirmDialog.handleKey(event); return }
+        if (event.key === Qt.Key_Escape) { if (root.canGoBack) root.goBack(); else root.close(); event.accepted = true; return }
         // Editors and focused controls handle their own keys first.
         if (Window.window && Window.window.activeFocusItem !== keyCatcher) return
         if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
           var dx = event.key === Qt.Key_Right ? 1 : -1
-          root.activeTab = (root.activeTab + dx + root.tabs.length) % root.tabs.length
+          root.switchRoot((root.activeTab + dx + root.tabs.length) % root.tabs.length)
           event.accepted = true
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-          if (root.activeTab === 0 && !root.practiceMode && !root.settingsOpen && !root.busy) root.generateSheet()
+          if (root.currentPage === "worksheet" && !root.busy) root.generateSheet()
           event.accepted = true
         } else if (event.key === Qt.Key_Space && root.practiceMode && !root.settingsOpen && root.activeTab === 0) {
           root.toggleTimer(); event.accepted = true
@@ -598,7 +652,7 @@ Panel {
               bordered: true
               horizontalPadding: Style.space(2)
               verticalPadding: Style.space(5)
-              onClicked: { root.settingsOpen = false; root.activeTab = index }
+              onClicked: root.switchRoot(index)
             }
           }
           Button {
@@ -610,9 +664,24 @@ Panel {
             bordered: true
             foreground: root.foreground
             fontFamily: root.fontFamily
-            onClicked: { root.settingsPage = "print"; root.settingsOpen = !root.settingsOpen }
+            onClicked: root.toggleSettings()
           }
 
+        }
+
+        Row {
+          visible: root.canGoBack
+          width: parent.width; spacing: Style.space(12)
+          Button {
+            text: root.backLabel; focusable: true
+            foreground: root.foreground; fontFamily: root.fontFamily
+            onClicked: root.goBack()
+          }
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.pageTitles[root.currentPage] || ""
+            color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+          }
         }
 
         PanelSeparator { foreground: root.foreground }
@@ -626,8 +695,10 @@ Panel {
             id: tabLoader
             width: parent.width
             sourceComponent: {
-              if (!root.settingsOpen) return root.activeTab === 1 ? progressTab : (root.practiceMode ? practiceTab : sheetTab)
-              switch (root.settingsPage) {
+              switch (root.currentPage) {
+                case "worksheet": return sheetTab
+                case "progress": return progressTab
+                case "practice": return practiceTab
                 case "profile": return profileTab
                 case "students": return studentsTab
                 case "reprint": return reprintTab
@@ -635,6 +706,7 @@ Panel {
                 case "reports": return reportOptionsTab
                 case "reminders": return reminderOptionsTab
                 case "unfinished": return unfinishedTab
+                case "print": return printSettingsTab
                 default: return settingsTab
               }
             }
@@ -643,6 +715,7 @@ Panel {
       }
 
       ConfirmDialog {
+        id: confirmDialog
         anchors.fill: parent
         opened: root.confirmKind !== ""
         message: root.confirmKind === "notifications"
@@ -650,7 +723,7 @@ Panel {
           : root.confirmKind === "student"
           ? "Delete this student and their sessions?"
           : "Delete this practice session?"
-        confirmText: root.confirmKind === "notifications" ? "Allow notifications" : "Delete"
+        confirmText: root.confirmKind === "notifications" ? "Allow" : "Delete"
         foreground: root.foreground
         background: Color.popups.background
         fontFamily: root.fontFamily
@@ -785,12 +858,12 @@ Panel {
 
 
       Button {
-        visible: root.studentId !== "" && root.unfinishedOptions.length > 1
-        text: "Reprint an unfinished worksheet"
+        visible: true
+        text: "Reprint a worksheet"
         focusable: true
         foreground: root.foreground
         fontFamily: root.fontFamily
-        onClicked: { root.settingsOpen = true; root.settingsPage = "unfinished" }
+        onClicked: root.navigate("unfinished")
       }
 
       Button {
@@ -808,6 +881,23 @@ Panel {
 
   Component {
     id: settingsTab
+    Column {
+      width: tabLoader.width; spacing: Style.space(12)
+      Repeater {
+        model: [{page: "print", title: "Print options"}, {page: "reminders", title: "Reminder preferences"},
+                {page: "students", title: "Student profiles"}, {page: "reports", title: "Report preferences"}]
+        Button {
+          required property var modelData
+          text: modelData.title + " →"; width: parent.width; leftAlign: true
+          focusable: true; bordered: true; foreground: root.foreground; fontFamily: root.fontFamily
+          onClicked: root.navigate(modelData.page)
+        }
+      }
+    }
+  }
+
+  Component {
+    id: printSettingsTab
     Column {
       width: tabLoader.width
       spacing: Style.space(12)
@@ -865,35 +955,7 @@ Panel {
         fontFamily: root.fontFamily
         onClicked: root.setOption("themed_sheets", !root.selectedStudent.themed_sheets)
       }
-      Button {
-        text: "Weekly reports & timing →"
-        focusable: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: root.settingsPage = "reports"
-      }
-      Button {
-        text: "Reminder preferences →"
-        focusable: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: root.settingsPage = "reminders"
-      }
-      Button {
-        text: "Reprint by sheet code →"
-        focusable: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: root.settingsPage = "reprint"
-      }
-      Button {
-        text: "Students & report motifs →"
-        focusable: true
-        bordered: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: root.settingsPage = "students"
-      }
+
     }
   }
 
@@ -902,7 +964,7 @@ Panel {
     Column {
       width: tabLoader.width
       spacing: Style.space(12)
-      Button { text: "← Settings"; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: root.settingsPage = "print" }
+
       AppDropdown {
         width: parent.width; label: "Student"; value: root.studentId; options: root.studentOptions
         foreground: root.foreground; fontFamily: root.fontFamily
@@ -940,7 +1002,7 @@ Panel {
     Column {
       width: tabLoader.width
       spacing: Style.space(10)
-      Button { text: "← Settings"; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: root.settingsPage = "print" }
+
       AppDropdown {
         width: parent.width; label: "Reminders for"; value: root.studentId; options: root.studentOptions
         foreground: root.foreground; fontFamily: root.fontFamily
@@ -963,7 +1025,8 @@ Panel {
       Row {
         width: parent.width; spacing: Style.space(12)
         NumberField {
-          id: missedDaysField; label: "Days without practice"; value: Number(root.selectedStudent.missed_days || 3)
+          id: missedDaysField; label: "Days without practice"; value: root.reminderDaysDraft
+          onModified: function(v) { root.reminderDaysDraft = v }
           from: 1; to: 365; fieldWidth: Style.space(170)
           foreground: root.foreground; fontFamily: root.fontFamily
         }
@@ -971,7 +1034,7 @@ Panel {
           width: parent.width - missedDaysField.implicitWidth - parent.spacing
           spacing: Style.spacing.labelGap
           Text { text: "Reminder time (24h)"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-          TextField { id: reminderTimeField; width: parent.width; text: root.selectedStudent.reminder_time || "18:00"; placeholderText: "18:00"; foreground: root.foreground }
+          TextField { id: reminderTimeField; width: parent.width; text: root.reminderTimeDraft; onTextEdited: root.reminderTimeDraft = text; placeholderText: "18:00"; foreground: root.foreground }
         }
       }
       Text {
@@ -982,7 +1045,11 @@ Panel {
         text: "Save day count & time"; selected: true; focusable: true
         enabled: root.studentId !== "" && !root.busy
         foreground: root.foreground; fontFamily: root.fontFamily
-        onClicked: root.run("set-student-options", {student_id: Number(root.studentId), missed_days: root.spinValue(missedDaysField, 3), reminder_time: reminderTimeField.text.trim()})
+        onClicked: {
+          root.reminderDaysDraft = root.spinValue(missedDaysField, root.reminderDaysDraft)
+          root.reminderTimeDraft = reminderTimeField.text.trim()
+          root.run("set-student-options", {student_id: Number(root.studentId), missed_days: root.reminderDaysDraft, reminder_time: root.reminderTimeDraft})
+        }
       }
     }
   }
@@ -991,8 +1058,7 @@ Panel {
     id: unfinishedTab
     Column {
       width: tabLoader.width; spacing: Style.space(12)
-      Button { text: "← Worksheet"; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: { root.settingsOpen = false; root.activeTab = 0 } }
-      PanelSectionHeader { text: "Printed, waiting for a result"; foreground: root.foreground; fontFamily: root.fontFamily }
+
       AppDropdown {
         width: parent.width; label: "Worksheet"; value: root.unfinishedCode; options: root.unfinishedOptions
         foreground: root.foreground; fontFamily: root.fontFamily
@@ -1010,87 +1076,35 @@ Panel {
       Button {
         text: "Record its result"; focusable: true; enabled: root.unfinishedCode !== "" && !root.busy
         foreground: root.foreground; fontFamily: root.fontFamily
-        onClicked: { root.createdSheet = null; root.applyCode(root.unfinishedCode); root.practiceMode = true; root.settingsOpen = false; root.activeTab = 0 }
+        onClicked: { root.createdSheet = null; root.applyCode(root.unfinishedCode); root.navigate("practice") }
       }
+      Button {
+        text: "Use a different sheet code →"; focusable: true
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.navigate("reprint")
+      }
+
     }
   }
 
   Component {
     id: reprintTab
     Column {
-      width: tabLoader.width
-      spacing: Style.space(12)
-      Button {
-        text: "← Print settings"
-        focusable: true
+      width: tabLoader.width; spacing: Style.space(12)
+      TextField {
+        width: parent.width; text: root.reprintCode; placeholderText: "Sheet code, e.g. 2-2"
         foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: root.settingsPage = "print"
+        onTextEdited: root.reprintCode = text
       }
-      PanelSectionHeader { text: "Reprint a worksheet"; foreground: root.foreground; fontFamily: root.fontFamily }
-      Row {
-        width: parent.width
-        spacing: Style.space(10)
-
-        NumberField {
-          id: seedField
-          label: "Sheet number"
-          value: root.seedValue
-          from: 1
-          to: 2147483646
-          stepSize: 1
-          fieldWidth: Style.space(140)
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          onModified: function(v) {
-            root.seedValue = Math.max(1, v)
-            root.codeDraft = root.sheetCode
-            root.scheduleRefresh()
-          }
-        }
-
-        Column {
-          width: parent.width - seedField.implicitWidth - parent.spacing
-          spacing: Style.spacing.labelGap
-
-          Text {
-            textFormat: Text.PlainText
-            text: "Sheet code"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-
-          TextField {
-            id: codeField
-            width: parent.width
-            text: root.codeDraft
-            placeholderText: "1-502"
-            foreground: root.foreground
-            onEditingFinished: root.applyCode(text)
-            onAccepted: root.applyCode(text)
-          }
-        }
-      }
-
       Text {
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "The same sheet code always prints the same problems."
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
+        width: parent.width; text: "Enter the code from the worksheet. The same code and print options reproduce the same exercises."
+        textFormat: Text.PlainText; wrapMode: Text.WordWrap; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
       }
-
       Button {
-        text: "Use this sheet · " + root.sheetCode
-        focusable: true
-        bordered: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: { root.practiceMode = false; root.activeTab = 0; root.settingsOpen = false }
+        text: "Create & open this sheet"; selected: true; focusable: true
+        enabled: !!root.parseCode(root.reprintCode) && !root.busy
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.generateCode(root.reprintCode)
       }
     }
   }
@@ -1101,13 +1115,7 @@ Panel {
       width: tabLoader.width
       spacing: Style.space(10)
 
-      Button {
-        text: "← Prepare next worksheet"
-        focusable: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: root.prepareNextSheet()
-      }
+
 
       PanelSectionHeader {
         text: "Record practice · " + root.sheetCode
@@ -1269,12 +1277,12 @@ Panel {
         placeholderText: "Notes"
         text: root.notesText
         foreground: root.foreground
-        onEditingFinished: root.notesText = text
+        onTextEdited: root.notesText = text
       }
 
       Button {
         focusable: true
-        text: "Save session"
+        text: "Save & view progress"
         selected: true
         iconText: "󰄬"
         bordered: true
@@ -1308,13 +1316,7 @@ Panel {
     Column {
       width: tabLoader.width
       spacing: Style.space(12)
-      Button {
-        text: "← Print settings"
-        focusable: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: root.settingsPage = "print"
-      }
+
       AppDropdown {
         width: parent.width
         label: "Manage student"
@@ -1357,13 +1359,7 @@ Panel {
     Column {
       width: tabLoader.width
       spacing: Style.space(12)
-      Button {
-        text: "← Students"
-        focusable: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: root.settingsPage = "students"
-      }
+
       PanelSectionHeader { text: root.profileId ? "Student profile" : "New student"; foreground: root.foreground; fontFamily: root.fontFamily }
       TextField {
         id: profileName
@@ -1420,13 +1416,7 @@ Panel {
     Column {
       width: tabLoader.width
       spacing: Style.space(12)
-      Button {
-        text: "← Progress"
-        focusable: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onClicked: { root.settingsOpen = false; root.activeTab = 1 }
-      }
+
       PanelSectionHeader { text: "Recent practice entries"; foreground: root.foreground; fontFamily: root.fontFamily }
       Repeater {
         model: root.recentSessions
@@ -1456,6 +1446,7 @@ Panel {
       }
       Row {
         spacing: Style.space(8)
+
         Button { text: "← Newer"; enabled: root.sessionPage > 0; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: root.sessionPage-- }
         Button { text: "Older →"; enabled: (root.sessionPage + 1) * 3 < root.sessions.length; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: root.sessionPage++ }
       }
@@ -1533,6 +1524,11 @@ Panel {
         onClicked: root.run("export-report", {student_id: Number(root.studentId), period: "week"})
       }
       Button {
+        text: "Choose a previous week's report →"; focusable: true
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.navigate("reports")
+      }
+      Button {
         text: "Change their report motif"
         enabled: root.studentId !== "" && !root.busy
         focusable: true
@@ -1546,7 +1542,7 @@ Panel {
         focusable: true
         foreground: root.foreground
         fontFamily: root.fontFamily
-        onClicked: { root.settingsPage = "history"; root.settingsOpen = true; root.sessionPage = 0 }
+        onClicked: { root.sessionPage = 0; root.navigate("history") }
       }
 
     }

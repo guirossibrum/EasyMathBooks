@@ -17,9 +17,9 @@ put on the TV. Everything stays on your computer.
 - **40 math levels**, from single-digit addition to factoring quadratics.
 - **Deterministic sheet codes.** `2-3` always reproduces the same exercise plan.
 - **A simple flow:** choose student and level → create → time/score → save → progress.
-- **No scrolling inside the widget.** Occasional settings have their own compact screens.
+- **No scrolling inside the widget.** Every child page has the same left-arrow Back control, returning to the page you came from. Escape also goes Back; at the root, it closes the widget.
 - **Reprint unfinished sheets.** Replace a lost worksheet with the same problems and original print settings, or record its result.
-- **Weekly keepsakes.** Past seven days by default; select any earlier week with results in the gear menu.
+- **Weekly keepsakes.** Past seven days by default; select any earlier week with results from Progress.
 - **Every practiced level counts.** Each level has its own results card, alongside total correct exercises and overall accuracy.
 - **Timing is optional.** Off by default; parents can choose a report that celebrates correct answers without showing speed comparisons.
 - **52 positive messages**, one for each week of the year.
@@ -46,8 +46,9 @@ same. Answer keys are available separately.
 ## A weekly report, your way
 
 **Progress → Open past 7 days report** opens a local HTML document in your browser.
-The gear menu provides **Weekly reports & timing**, where you can choose a previous
-Monday–Sunday week with saved results and decide whether timing belongs in the report.
+**Progress → Choose a previous week’s report** opens the archive of
+Monday–Sunday weeks with saved results. Timing can be changed there or in the
+gear’s **Report preferences**.
 
 The keepsake includes worksheet count, accuracy, total correct exercises, seven
 days of activity, results for every practiced level, a positive weekly message,
@@ -89,9 +90,9 @@ Requires Omarchy, Python 3, and ReportLab. The first worksheet automatically
 installs ReportLab into `~/.local/share/easymathbooks/venv`. License: MIT.
 
 The calculator icon opens the widget. **Worksheet** is for preparation and
-practice; **Progress** is for results and reports. The **gear** holds paper size,
-worked examples, answer keys, motif stationery, archived reports, reminder
-preferences, reprinting by code, and student management. Escape closes the panel.
+practice; **Progress** is for results and reports. The **gear** opens a small settings hub for print options, reminder
+preferences, student profiles, and report preferences. Reprinting stays in
+**Worksheet**, and report actions stay in **Progress**.
 Right-clicking the calculator creates the current worksheet.
 
 ## Your family's data stays local
@@ -111,6 +112,7 @@ omarchy plugin remove grbrum.easymath
 
 See the [complete preview gallery](docs/ui-review/README.md), including printable
 PDFs, themed worksheets, timing examples, and every widget screen.
+The [stability and navigation audit](docs/audit/README.md) includes a before/after workflow diagram.
 [AGENTS.md](AGENTS.md) documents the architecture, feature contracts, privacy,
 tests, and reversible local installation workflow.
 

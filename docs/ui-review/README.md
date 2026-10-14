@@ -4,7 +4,7 @@ Everything in this gallery uses a separate, fictional database: six students and
 
 ## Review the widget
 
-The main navigation now has **Worksheet**, **Progress**, and a **gear**. Creating a sheet opens the practice step for that exact sheet; saving opens Progress. The gear holds print settings, reprinting, and student profiles. Each screen fits immediately, with no scrolling. Practice history uses three entries per page.
+The main navigation now has **Worksheet**, **Progress**, and a **gear**. Creating a sheet opens the practice step for that exact sheet; saving opens Progress. The gear holds print settings, reminder preferences, and student profiles. Reprinting stays in Worksheet; earlier reports stay in Progress. Every child screen has a consistent Back control that returns to its caller. Each screen fits immediately, with no scrolling. Practice history uses three entries per page.
 
 | Prepare a worksheet | Record practice | Progress & report |
 |---|---|---|
@@ -41,6 +41,7 @@ From the repository root, using its Python environment:
 ```sh
 .venv/bin/python tools/create_demo.py
 .venv/bin/python tools/preview_ui.py
+.venv/bin/python tools/check_runtime.py
 .venv/bin/python tools/render_reports.py
 .venv/bin/python -m unittest discover -s tests
 ```
@@ -74,3 +75,5 @@ The examples include results from two levels in a single week.
 
 Reminders are opt-in application preferences for each parent/student. Generating
 this gallery does not send notifications or change the real application's preferences.
+
+See the [full stability/navigation audit and workflow diagram](../audit/README.md) for the reasoning behind these routes.

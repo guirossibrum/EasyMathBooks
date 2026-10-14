@@ -4,7 +4,7 @@
 
 Easy Math Books is a local Omarchy/Quickshell bar plugin for parents. It generates deterministic, printable math worksheets, records practice, and creates personal weekly keepsakes. Favor a short, clear flow and celebrate effort without presenting speed as the measure of success.
 
-The widget has Worksheet and Progress views plus a gear. Every screen must fit without scrolling. Use short subpages, searchable dropdowns, and three-entry pagination for history. The full journal belongs in the external report. Use the Omarchy UI kit and theme tokens.
+The widget has Worksheet and Progress views plus a gear. `currentPage` and `backStack` define navigation; child pages share one persistent Back control. Reprinting belongs to Worksheet, reports and history to Progress, and the gear opens a configuration hub. Profile Save returns to its actual caller. Do not introduce per-page hard-coded return destinations. Every screen must fit without scrolling. Use short subpages, searchable dropdowns, and three-entry pagination for history. The full journal belongs in the external report. Use the Omarchy UI kit and theme tokens.
 
 ## Features and contracts
 
@@ -12,7 +12,7 @@ The widget has Worksheet and Progress views plus a gear. Every screen must fit w
 - Creation advances the next-print pointer but practice must target the sheet actually generated. Preserve the generated PDF through snapshot refreshes; never open a different sheet's PDF.
 - Printed sheets without a matching saved result appear in the unfinished picker. Reprinting preserves their original paper and worked-example settings, regenerates missing PDFs, and does not mark them done. A saved result removes them from that picker.
 - Students have names, Male/Female profiles, and three motifs per gender: flowers/unicorns/butterflies or sports/cars/airplanes. Legacy profiles remain unspecified until explicitly saved and use neutral stars. Never imply that an unsaved default is a saved choice.
-- Main reports cover the past seven days, including today. The gear offers historical Monday–Sunday weeks with saved results. Do not mix results outside the selected period or include future results.
+- Main reports cover the past seven days, including today. Progress offers historical Monday–Sunday weeks with saved results. Do not mix results outside the selected period or include future results.
 - Reports emphasize percentage correct and total correct exercises, with a results card for every practiced level. Timing defaults off and must be omitted from both the keepsake and hidden journal when off. Parents can enable it per student.
 - Report HTML is self-contained and offline, with vector artwork, print styles, a printable journal, and TV mode. Hide the journal button in TV mode. Keep regular weekly reports printable on one Letter/A4 page; unusually many levels may require additional pages rather than clipping information.
 - `encouragement.py` contains 52 original positive messages. The report week's ISO week selects the message consistently; ISO week 53 wraps to the first message.
@@ -25,7 +25,7 @@ The widget has Worksheet and Progress views plus a gear. Every screen must fit w
 
 | File | Responsibility |
 |---|---|
-| `Panel.qml` | Widget state, bounded views, timer, profile/settings controls, consent dialog, CLI protocol |
+| `Panel.qml` | Explicit page history, queued subprocess commands, widget state, bounded views, timer, profile/settings controls, consent dialog, CLI protocol |
 | `AppDropdown.qml`, `AppSearchableDropdown.qml` | In-window overlay menus compatible with Omarchy keyboard panels |
 | `cli.py` | JSON commands and snapshots; integrates generation, profiles, reports and reminders |
 | `store.py` | SQLite records, idempotent migrations, preferences, pending sheets, week index and statistics |
@@ -36,7 +36,7 @@ The widget has Worksheet and Progress views plus a gear. Every screen must fit w
 | `reminders.py` | Pure due calculations, deduplication and local notification delivery |
 | `bin/easymath-cli` | Python/venv selection and dependency bootstrap |
 
-The base Omarchy `Panel` exposes writable `settings` for shell injection. Do not override it with a read-only property. Snapshot settings live at `snap.settings`. Changes to plugin files may leave cached QML components alive; verify the visible widget after reloading. If needed, use the Omarchy skill and restart the shell rather than claiming a rescan alone proved the new UI is loaded.
+The base Omarchy `Panel` exposes writable `settings` for shell injection. Do not override it with a read-only property. Snapshot settings live at `snap.settings`. The installed plugin is recursively watched: the CLI must use `-B` and `PYTHONDONTWRITEBYTECODE=1` so Python cache writes never reload the widget. Keep reports, databases, and other generated files outside the installed plugin. Publish reports atomically with content-versioned filenames so open documents stay unchanged. Changes to plugin files may leave cached QML components alive; verify the visible widget after reloading. If needed, use the Omarchy skill and restart the shell rather than claiming a rescan alone proved the new UI is loaded.
 
 ## Data and privacy
 
@@ -52,6 +52,8 @@ Use the repository venv or a Python environment with `requirements.txt` installe
 .venv/bin/python -m unittest discover -s tests
 .venv/bin/python tools/create_demo.py
 .venv/bin/python tools/preview_ui.py
+.venv/bin/python tools/check_runtime.py
+.venv/bin/python tools/check_runtime.py --missing-helper
 .venv/bin/python tools/render_reports.py
 ```
 

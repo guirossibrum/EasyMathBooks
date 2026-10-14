@@ -6,10 +6,12 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+import shutil
+import subprocess
 
 import cli
 import store
-from report import render_report
+from report import render_report, write_report
 from reminders import check_reminders, due_reminders
 from encouragement import MESSAGES, weekly_message
 from generate import generate_one, LEVEL_BY_NUM, paper_size, plan_sheet
@@ -137,6 +139,54 @@ class WeeklyFeaturesTest(unittest.TestCase):
         self.assertEqual(store.pending_sheets(self.sid), [])
         rc, result = self.command('reprint-pending', {'sheet_code': '1-1'})
         self.assertEqual(rc, 1)
+
+    def test_sheet_lookup_prefers_the_student_and_isolates_blank_prints(self):
+        store.record_sheet('1-1', 1, 1, 35, 'letter', False, '/fake/lily.pdf', None, self.sid)
+        store.record_sheet('1-1', 1, 1, 25, 'letter', True, '/fake/blank.pdf', None, None)
+        other = store.add_student('Noah', 'male', 'cars')
+        store.record_sheet('1-1', 1, 1, 35, 'letter', False, '/fake/noah.pdf', None, other['id'])
+        self.assertEqual(store.latest_sheet('1-1', self.sid)['pdf_path'], '/fake/lily.pdf')
+        self.assertEqual(store.latest_sheet('1-1', None)['pdf_path'], '/fake/blank.pdf')
+        self.assertEqual(cli.snapshot()['problem_count'], 35)
+
+
+    def test_report_versions_do_not_overwrite_open_documents(self):
+        rows = [self.add('2026-10-13')]
+        first = write_report(self.student, rows, today=date(2026, 10, 13))
+        original = first.read_bytes()
+        updated = store.update_student(self.sid, 'Lily', 'female', 'unicorns')
+        second = write_report(updated, rows, today=date(2026, 10, 13))
+        self.assertNotEqual(first, second)
+        self.assertEqual(first.read_bytes(), original)
+        self.assertIn('A little everyday magic', second.read_text())
+        self.assertEqual(write_report(updated, rows, today=date(2026, 10, 13)), second)
+        self.assertEqual(list(first.parent.glob('.report-*.tmp')), [])
+
+    def test_installed_helper_never_writes_inside_watched_plugin(self):
+        root = Path(__file__).resolve().parents[1]
+        plugin = Path(self.tmp.name)/'plugin'
+        names = ['cli.py', 'store.py', 'generate.py', 'report.py', 'report.css',
+                 'encouragement.py', 'reminders.py', 'worksheet_style.py',
+                 'requirements.txt', 'bin/easymath-cli']
+        for name in names:
+            target = plugin/name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root/name, target)
+        (plugin/'.venv').symlink_to(root/'.venv')
+        def fingerprints():
+            return {name: ((plugin/name).stat().st_mtime_ns, (plugin/name).read_bytes()) for name in names}
+        before = fingerprints()
+        commands = [('set-student-options', {'student_id': self.sid, 'missed_days': 5, 'reminder_time': '19:30'}),
+                    ('update-student', {'student_id': self.sid, 'name': 'Lily', 'gender': 'female', 'motif': 'unicorns'}),
+                    ('export-report', {'student_id': self.sid}), ('check-reminders', {})]
+        for cmd, payload in commands:
+            result = subprocess.run([str(plugin/'bin/easymath-cli'), cmd, json.dumps(payload)],
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr+result.stdout)
+            self.assertTrue(json.loads(result.stdout)['ok'])
+        self.assertEqual(fingerprints(), before)
+        self.assertEqual(list(plugin.glob('__pycache__')), [])
+
 
     def test_all_motif_worksheets_preserve_the_problem_plan(self):
         level = LEVEL_BY_NUM[2]
