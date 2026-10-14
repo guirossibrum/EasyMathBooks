@@ -295,6 +295,14 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { root.refresh(); return "ok" }
+    function tab(name: string): string {
+      var n = String(name || "").toLowerCase()
+      if (n === "sheet" || n === "0") root.activeTab = 0
+      else if (n === "students" || n === "1") root.activeTab = 1
+      else if (n === "progress" || n === "2") root.activeTab = 2
+      root.open()
+      return String(root.activeTab)
+    }
   }
 
   BarIconButton {

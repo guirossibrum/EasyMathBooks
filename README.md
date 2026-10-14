@@ -8,6 +8,10 @@ always reprints the same problems.
 The app is an Omarchy bar panel (same visual kit as the other plugins).
 Python still does generation, students, timing, and progress.
 
+| Panel | Sheet 1-1 | Sheet 5-1 |
+|:---:|:---:|:---:|
+| ![Easy Math Books panel](docs/screenshots/panel.png) | ![Worksheet 1-1](docs/screenshots/worksheet-1-1.png) | ![Worksheet 5-1](docs/screenshots/worksheet-5-1.png) |
+
 Student names, practice times, and filled worksheets are **local only**.
 They are not in this repository. The first time the app runs it creates
 an empty database at `~/.local/share/easymathbooks/easymath.db`.
