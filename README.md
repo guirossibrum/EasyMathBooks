@@ -6,13 +6,13 @@ An Omarchy bar widget for creating printable math worksheets, recording practice
 and turning a child's weekly effort into a keepsake parents can print, save, or
 put on the TV. Everything stays on your computer.
 
-![A weekly math journey: seven days, two levels, and a colorful family keepsake](docs/ui-review/report-flowers-screen.png)
+![A weekly math journey: seven days, two levels, and a colorful family keepsake](docs/showcase/report-flowers-screen.png)
 
 ## From practice to something worth keeping
 
 | A compact widget | A personal worksheet | A report for the whole family |
 |:---:|:---:|:---:|
-| ![Worksheet view](docs/ui-review/worksheet.png) | ![Flower motif worksheet](docs/ui-review/worksheet-flowers.png) | ![Weekly report](docs/ui-review/report-flowers-print.png) |
+| ![Worksheet view](docs/showcase/worksheet.png) | ![Flower motif worksheet](docs/showcase/worksheet-flowers.png) | ![Weekly report](docs/showcase/report-flowers-print.png) |
 
 - **40 math levels**, from single-digit addition to factoring quadratics.
 - **Deterministic sheet codes.** `2-3` always reproduces the same exercise plan.
@@ -33,11 +33,11 @@ stars design until a motif is explicitly saved.
 
 | Flowers | Unicorns | Butterflies |
 |:---:|:---:|:---:|
-| [![Flowers](docs/ui-review/report-flowers-print.png)](docs/ui-review/report-flowers.pdf) | [![Unicorns](docs/ui-review/report-unicorns-print.png)](docs/ui-review/report-unicorns.pdf) | [![Butterflies](docs/ui-review/report-butterflies-print.png)](docs/ui-review/report-butterflies.pdf) |
+| [![Flowers](docs/showcase/report-flowers-print.png)](docs/showcase/report-flowers.pdf) | [![Unicorns](docs/showcase/report-unicorns-print.png)](docs/showcase/report-unicorns.pdf) | [![Butterflies](docs/showcase/report-butterflies-print.png)](docs/showcase/report-butterflies.pdf) |
 
 | Sports | Cars | Airplanes |
 |:---:|:---:|:---:|
-| [![Sports](docs/ui-review/report-sports-print.png)](docs/ui-review/report-sports.pdf) | [![Cars](docs/ui-review/report-cars-print.png)](docs/ui-review/report-cars.pdf) | [![Airplanes](docs/ui-review/report-airplanes-print.png)](docs/ui-review/report-airplanes.pdf) |
+| [![Sports](docs/showcase/report-sports-print.png)](docs/showcase/report-sports.pdf) | [![Cars](docs/showcase/report-cars-print.png)](docs/showcase/report-cars.pdf) | [![Airplanes](docs/showcase/report-airplanes-print.png)](docs/showcase/report-airplanes.pdf) |
 
 Worksheets can stay **plain** for economical printing or **match the student's
 motif** with colorful stationery. The exercise plan and writing space stay the
@@ -60,7 +60,7 @@ printing. The timing preference applies to that journal too.
 exits fullscreen. The file needs no account, external fonts, images, or network
 connection, so it can be copied to another device.
 
-![The airplane motif in TV view](docs/ui-review/report-airplanes-tv.png)
+![The airplane motif in TV view](docs/showcase/report-airplanes-tv.png)
 
 ## Reminders belong to the parent
 
@@ -108,13 +108,9 @@ Removing the widget preserves your records:
 omarchy plugin remove grbrum.easymath
 ```
 
-## Try the design and develop locally
+## Generate worksheets from the command line
 
-See the [complete preview gallery](docs/ui-review/README.md), including printable
-PDFs, themed worksheets, timing examples, and every widget screen.
-The [stability and navigation audit](docs/audit/README.md) includes a before/after workflow diagram.
-[AGENTS.md](AGENTS.md) documents the architecture, feature contracts, privacy,
-tests, and reversible local installation workflow.
+You can also create worksheets directly with Python:
 
 ```sh
 python generate.py --list

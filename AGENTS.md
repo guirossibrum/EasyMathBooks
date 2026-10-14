@@ -44,7 +44,7 @@ Dropdowns emit `changed(value)` and let the parent update its state. Never assig
 
 Real data lives in `${XDG_DATA_HOME:-~/.local/share}/easymathbooks/`, including `easymath.db`, generated worksheets and reports. Keep migrations additive and compatible with older code. Back up the database before testing a new installed version. Normal code rollback must preserve practice recorded during a trial.
 
-Never commit actual student names, records, generated family reports, database backups, or live desktop screenshots. Committed design examples use only the fictional database under `output/ui-review/demo/`. `output/` and database files are Git-ignored.
+Never commit actual student names, records, generated family reports, database backups, or live desktop screenshots. Public design examples in `docs/showcase/` use only the fictional database under `output/ui-review/demo/`. Keep `docs/ui-review/` and `docs/audit/` as local, Git-ignored review material; do not link to them from public documentation. `output/` and database files are also Git-ignored.
 
 ## Validation
 

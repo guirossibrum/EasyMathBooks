@@ -10,4 +10,7 @@ output/
 *.db
 *.db-journal
 
+# Local design reviews and audit notes.
+/docs/ui-review/
+/docs/audit/
 
