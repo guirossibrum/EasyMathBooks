@@ -3,13 +3,12 @@
   "id": "grbrum.easymath",
   "name": "Easy Math Books",
   "version": "1.0.0",
-  "author": "grbrum",
+  "author": "Guilherme Rossi Brum",
   "license": "MIT",
   "description": "Create deterministic Kumon-style math worksheets, time practice, and track student progress.",
   "kinds": [
     "bar-widget"
   ],
-  "activation": "on-demand",
   "entryPoints": {
     "barWidget": "Panel.qml"
   },

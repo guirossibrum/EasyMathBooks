@@ -10,5 +10,4 @@ output/
 *.db
 *.db-journal
 
-# Written by ./easymath when installing the Omarchy plugin.
-plugin/app-root
+
