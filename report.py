@@ -4,6 +4,7 @@ from html import escape
 from pathlib import Path
 
 from store import default_output_dir, progress_report, format_duration
+from encouragement import weekly_message
 
 THEMES = {
     "flowers": ("Garden of growth", "#b64d70", "#f9e5eb", "#fffaf5", "Every little effort helps you bloom."),
@@ -30,77 +31,97 @@ def motif_svg(motif):
     return '<svg class="motif-art" viewBox="0 0 280 240" aria-hidden="true"><circle cx="140" cy="120" r="107" fill="var(--soft)"/>' + drawings.get(motif, drawings["stars"]) + '<g fill="var(--accent)" opacity=".45"><path d="M30 33h12m-6-6v12M237 53h12m-6-6v12M229 211h12m-6-6v12" stroke="currentColor" stroke-width="2"/></g></svg>'
 
 
-def render_report(student, sessions, period="month", today=None, paper="letter"):
-    if period not in ("month", "all"):
-        raise ValueError("Report period must be month or all.")
+def report_range(period, today, week_start=None):
+    if week_start:
+        start = date.fromisoformat(week_start)
+        if start.weekday() != 0:
+            raise ValueError("Archived weeks must start on Monday.")
+        return start, start + timedelta(days=6)
+    if period not in ("week", "month", "all"):
+        raise ValueError("Report period must be week, month, or all.")
+    return (today-timedelta(days=6 if period == "week" else 29) if period != "all" else None), today
+
+
+def render_report(student, sessions, period="week", today=None, paper="letter", week_start=None, show_timing=None):
     if paper not in ("letter", "a4"):
         raise ValueError("Paper must be letter or a4.")
     today = today or date.today()
-    start = today - timedelta(days=29) if period == "month" else None
-    rows = [r for r in sessions if str(r["taken_at"])[:10] <= today.isoformat()
+    start, end = report_range(period, today, week_start)
+    rows = [r for r in sessions if str(r["taken_at"])[:10] <= min(end, today).isoformat()
             and (start is None or str(r["taken_at"])[:10] >= start.isoformat())]
-    stats = progress_report(student["id"], today=today, sessions=rows)
+    stats = progress_report(student["id"], today=min(end, today), sessions=rows)
+    show_timing = bool(student.get("show_timing", False)) if show_timing is None else bool(show_timing)
     motif = student.get("motif") or "stars"
-    theme = THEMES.get(motif, THEMES["stars"])
-    title, accent, soft, cream, encouragement = theme
+    title, accent, soft, cream, _ = THEMES.get(motif, THEMES["stars"])
+    encouragement = weekly_message(end)
     name = escape(student["name"])
-    span = f'{start:%b %d} – {today:%b %d, %Y}' if start else f'All practice · through {today:%b %d, %Y}'
+    span = f'{start:%b %d} – {end:%b %d, %Y}' if start else f'All practice · through {end:%b %d, %Y}'
     accuracy = stats.get("accuracy_pct")
     pct = f'{accuracy:g}%' if accuracy is not None else '—'
     problems = sum(int(r.get("score_max") or 0) for r in rows)
+    correct = sum(int(r.get("score") or 0) for r in rows)
     count = len(rows)
     active_days = len({str(r["taken_at"])[:10] for r in rows})
     levels = stats.get("levels", [])
-    latest = max(levels, key=lambda x: x["level"]) if levels else None
-    latest_label = f'Level {latest["level"]}' if latest else 'First steps'
-    level_name = ""
-    if latest:
-        from generate import LEVEL_BY_NUM
-        level_name = LEVEL_BY_NUM[latest["level"]].title
     def metric(value, label, detail):
         return f'<div class="metric"><strong>{value}</strong><span>{label}</span><small>{detail}</small></div>'
-    metrics = ''.join([metric(count, 'worksheets completed', f'{active_days} days of practice'),
+    metrics = ''.join([metric(count, 'worksheets completed', f'{active_days} '+('day' if active_days == 1 else 'days')+' of practice'),
                        metric(pct, 'answers correct', f'{problems:,} exercises recorded'),
-                       metric(latest_label, 'latest level practiced', 'One step at a time')])
+                       metric(f'{correct:,}', 'correct exercises', f'Across {len(levels)} '+('level' if len(levels) == 1 else 'levels'))])
+    calendar_start = start if start and (end-start).days == 6 else end-timedelta(days=6)
+    counts = {}
+    for r in rows:
+        key = str(r['taken_at'])[:10]
+        counts[key] = counts.get(key, 0) + 1
     activity = ''
-    for d in stats.get("days", []):
-        daynum = int(d["date"][-2:])
-        cls = ' practiced' if d['count'] else ''
-        activity += f'<div class="day{cls}" title="{d["date"]}: {d["count"]} sheets"><span>{d["letter"]}</span><b>{d["count"] or "·"}</b><small>{daynum}</small></div>'
-    if not activity:
-        activity = '<p>Your first practice day is the beginning of something lovely.</p>'
-    pace_html = ''
-    if latest:
-        spark = latest.get("spark", [])
-        bars = ''.join(f'<i style="height:{round(float(p["height"])*100)}%" title="Sheet {p["sheet_code"]}: {p["seconds_each"]} seconds per exercise"></i>' for p in spark)
-        pace_html = f'<div class="pace"><div><p class="eyebrow">A closer look · {latest_label}</p><h3>{escape(level_name)}</h3><p>{escape(latest["pace_label"])}</p><small>Practice pace per exercise · lower bars mean quicker work.</small></div><div class="spark">{bars}</div></div>'
-    else:
-        pace_html = '<div class="pace"><div><p class="eyebrow">A wonderful beginning</p><h3>Ready when you are.</h3><p>The first worksheet starts your story.</p></div></div>'
+    for offset in range(7):
+        day = calendar_start + timedelta(days=offset)
+        n = counts.get(day.isoformat(), 0)
+        cls = ' practiced' if n else ''
+        activity += f'<div class="day{cls}" title="{day:%Y-%m-%d}: {n} sheets"><span>{day:%a}</span><b>{n or "·"}</b><small>{day:%b} {day.day}</small></div>'
+    from generate import LEVEL_BY_NUM
+    level_cards = ''
     detail_levels = ''
     for lv in levels:
         acc = f'{lv["accuracy_pct"]:g}%' if lv['accuracy_pct'] is not None else '—'
-        detail_levels += f'<tr><td>Level {lv["level"]}</td><td>{lv["sessions"]}</td><td>{acc}</td><td>{escape(lv["best_pace_label"])}</td><td>{escape(lv["pace_label"])}</td></tr>'
+        level_name = LEVEL_BY_NUM[lv['level']].title
+        timing = ''
+        if show_timing:
+            bars = ''.join(f'<i style="height:{round(float(p["height"])*100)}%"></i>' for p in lv.get('spark', []))
+            timing = f'<div class="level-timing"><p>{escape(lv["pace_label"])}</p><div class="spark">{bars}</div></div>'
+        level_cards += f'<div class="level-card"><p class="eyebrow">Level {lv["level"]}</p><h3>{escape(level_name)}</h3><p><strong>{lv["correct"]} correct</strong> of {lv["possible"]} · {acc} accuracy</p>{timing}</div>'
+        time_cells = f'<td>{escape(lv["best_pace_label"])}</td><td>{escape(lv["pace_label"])}</td>' if show_timing else ''
+        detail_levels += f'<tr><td>Level {lv["level"]}</td><td>{lv["sessions"]}</td><td>{acc}</td>{time_cells}</tr>'
+    if level_cards:
+        progress_html = f'<section class="level-progress"><div class="section-title"><h2>Every level is part of the journey.</h2></div><div class="level-grid">{level_cards}</div></section>'
+    else:
+        progress_html = '<div class="pace"><div><p class="eyebrow">A wonderful beginning</p><h3>Ready when you are.</h3><p>The first worksheet starts your story.</p></div></div>'
     session_rows = ''
     for r in sorted(rows, key=lambda x:(str(x['taken_at']),x['id']), reverse=True):
         score = f'{r["score"]} / {r["score_max"]}' if r.get('score') is not None else '—'
-        session_rows += f'<tr><td>{escape(str(r["taken_at"])[:10])}</td><td>{escape(r["sheet_code"])}</td><td>{format_duration(r["duration_seconds"])}</td><td>{score}</td><td>{escape(r.get("notes") or "")}</td></tr>'
+        time_cell = f'<td>{format_duration(r["duration_seconds"])}</td>' if show_timing else ''
+        session_rows += f'<tr><td>{escape(str(r["taken_at"])[:10])}</td><td>{escape(r["sheet_code"])}</td>{time_cell}<td>{score}</td><td>{escape(r.get("notes") or "")}</td></tr>'
+    time_headers = '<th>Best pace</th><th>First → latest pace</th>' if show_timing else ''
+    session_time_header = '<th>Time</th>' if show_timing else ''
     details = f'''<section class="details" id="details"><p class="eyebrow">The practice journal</p><h2>Little efforts, recorded.</h2><p class="subtle">{name} · {span}</p>
-<h3>Progress by level</h3><table><thead><tr><th>Level</th><th>Sheets</th><th>Accuracy</th><th>Best pace</th><th>First → latest pace</th></tr></thead><tbody>{detail_levels or '<tr><td colspan="5">No practice recorded in this period.</td></tr>'}</tbody></table>
-<h3>Every practice session</h3><table><thead><tr><th>Date</th><th>Sheet</th><th>Time</th><th>Correct</th><th>Notes</th></tr></thead><tbody>{session_rows or '<tr><td colspan="5">Your practice journal is ready for its first entry.</td></tr>'}</tbody></table></section>'''
+<h3>Progress by level</h3><table><thead><tr><th>Level</th><th>Sheets</th><th>Accuracy</th>{time_headers}</tr></thead><tbody>{detail_levels or '<tr><td colspan="5">No practice recorded in this period.</td></tr>'}</tbody></table>
+<h3>Every practice session</h3><table><thead><tr><th>Date</th><th>Sheet</th>{session_time_header}<th>Correct</th><th>Notes</th></tr></thead><tbody>{session_rows or '<tr><td colspan="5">Your practice journal is ready for its first entry.</td></tr>'}</tbody></table></section>'''
     css = (Path(__file__).with_name("report.css")).read_text()
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{name} · My math journey</title><style>:root{{--accent:{accent};--soft:{soft};--cream:{cream};}}@page{{size:{'A4' if paper == 'a4' else 'Letter'} portrait;}}{css}</style></head>
-<body><nav class="toolbar" aria-label="Report actions"><span>Easy Math Books · Family keepsake</span><div><button onclick="window.print()">Print / save PDF</button><button id="tv" onclick="toggleTV()">TV view</button><button id="journal" onclick="toggleJournal()" aria-expanded="false">Show practice journal</button></div></nav>
+<body><nav class="toolbar" aria-label="Report actions"><span>Easy Math Books · Weekly family keepsake</span><div><button onclick="window.print()">Print / save PDF</button><button id="tv" onclick="toggleTV()">TV view</button><button id="journal" onclick="toggleJournal()" aria-expanded="false">Show practice journal</button></div></nav>
 <main><article class="keepsake"><div class="topline"><span>EASY MATH BOOKS</span><span>{span}</span></div><header><div><p class="eyebrow">{title}</p><h1>{name}’s<br><em>math journey.</em></h1><p class="intro">A celebration of practice, patience,<br>and all the little steps that add up.</p></div>{motif_svg(motif)}</header>
-<div class="metrics">{metrics}</div><section class="activity"><div class="section-title"><h2>A little practice, day by day.</h2><span>Last 14 days</span></div><div class="days">{activity}</div><p class="subtle">Every colored day is a day you showed up. That’s worth celebrating.</p></section>{pace_html}
+<div class="metrics">{metrics}</div><section class="activity"><div class="section-title"><h2>A little practice, day by day.</h2><span>{'This week' if week_start else 'Past 7 days'}</span></div><div class="days">{activity}</div><p class="subtle">Every colored day is a day you showed up. That’s worth celebrating.</p></section>{progress_html}
 <footer><div class="star">✦</div><div><p>{encouragement}</p><span>We’re proud of the effort you put in, {name}.</span></div><div class="signature">With love,<br><span>________________</span></div></footer><div class="bottomline"><span>A little keepsake. A big reason to be proud.</span><span>Made {today:%B %d, %Y}</span></div></article>{details}</main>
 <script>function toggleJournal(){{let open=document.body.classList.toggle('journal-open');document.getElementById('journal').textContent=open?'Hide practice journal':'Show practice journal';document.getElementById('journal').setAttribute('aria-expanded',String(open))}}function toggleTV(){{let active=document.body.classList.toggle('tv');document.getElementById('tv').textContent=active?'Exit TV view':'TV view';if(active&&document.documentElement.requestFullscreen)document.documentElement.requestFullscreen().catch(()=>{{}});else if(!active&&document.fullscreenElement)document.exitFullscreen().catch(()=>{{}})}}if(new URLSearchParams(location.search).has('tv'))document.body.classList.add('tv');document.addEventListener('fullscreenchange',()=>{{if(!document.fullscreenElement){{document.body.classList.remove('tv');document.getElementById('tv').textContent='TV view'}}}})</script></body></html>'''
 
 
-def write_report(student, sessions, period="month", today=None, paper="letter"):
+def write_report(student, sessions, period="week", today=None, paper="letter", week_start=None, show_timing=None):
     today = today or date.today()
-    html = render_report(student, sessions, period=period, today=today, paper=paper)
+    html = render_report(student, sessions, period=period, today=today, paper=paper,
+                         week_start=week_start, show_timing=show_timing)
+    start, end = report_range(period, today, week_start)
     folder = default_output_dir() / "reports"
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f'student-{int(student["id"])}-{today.isoformat()}-{period}.html'
+    path = folder / f'student-{int(student["id"])}-{start or "all"}-{end}.html'
     path.write_text(html, encoding="utf-8")
     return path

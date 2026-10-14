@@ -1,6 +1,6 @@
 # UI experiment · dev/ui-review
 
-Everything in this gallery uses a separate, fictional database: six students and 45 days of sample activity. Real student data and the installed desktop plugin were not changed.
+Everything in this gallery uses a separate, fictional database: six students and 45 days of sample activity, plus a second level in the example week. Real student data and the installed desktop plugin were not changed.
 
 ## Review the widget
 
@@ -20,7 +20,7 @@ Also see [student management](students.png) and [reprinting](reprint.png).
 
 These are real browser renders and PDF print previews. Each report is a standalone HTML file with inline vector artwork, styling, and controls. It works offline. **Print / save PDF** prints the one-page keepsake. **Show practice journal** reveals the detailed level and session tables and includes them in printing. **TV view** presents the keepsake fullscreen; Escape exits fullscreen.
 
-The report includes a 30-day or all-time summary, activity, pace alongside accuracy, an encouraging message, and a parent signature line. It celebrates effort without treating a day off or a slower session as a failure. Gender choices are Male/Female. Existing students retain their data and receive a neutral stars design until a profile is chosen.
+The report includes a seven-day summary or a selected earlier week, activity, results across levels, optional pace alongside accuracy, an encouraging message, and a parent signature line. It celebrates effort without treating a day off or a slower session as a failure. Gender choices are Male/Female. Existing students retain their data and receive a neutral stars design until a profile is chosen.
 
 | Flowers · Lily | Unicorns · Mia | Butterflies · Sophie |
 |---|---|---|
@@ -57,3 +57,20 @@ From the repository root, using its Python environment:
 - A small print preview before creating worksheets, especially when worked examples change the problem count.
 
 The worksheet's monochrome arithmetic layout remains useful: large digits, generous writing space, and low printing cost. The family report supplies the color and celebration.
+
+## New parent controls
+
+| Report archive & optional timing | Reminders: editable days and time | Reprint an unfinished sheet |
+|---|---|---|
+| ![Report options](report-options.png) | ![Reminder options](reminder-options.png) | ![Unfinished sheets](unfinished.png) |
+
+Timing defaults off. Compare the [results-only keepsake](report-flowers.pdf) with
+[timing enabled](report-flowers-timed.pdf), or open the [archived week](report-flowers-archived.pdf).
+The examples include results from two levels in a single week.
+
+| Flower stationery | Airplane stationery |
+|---|---|
+| [![Flower worksheet](worksheet-flowers.png)](worksheet-flowers.pdf) | [![Airplane worksheet](worksheet-airplanes.png)](worksheet-airplanes.pdf) |
+
+Reminders are opt-in application preferences for each parent/student. Generating
+this gallery does not send notifications or change the real application's preferences.

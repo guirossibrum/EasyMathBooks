@@ -69,6 +69,10 @@ function verifyFlow(data) {
     && review.demoCommand.payload.motif === "flowers"
     && review.demoCommand.payload.gender === "female", "Profile save must persist the chosen motif")
   review.applySnap(data)
+  review.setOption("weekly_reminder", true)
+  demoWindow.check(review.confirmKind === "notifications", "First reminder enable must ask permission")
+  demoWindow.check(!review.selectedStudent.weekly_reminder, "Asking permission must not enable a reminder")
+  review.confirmKind = ""
   review.settingsOpen = false
   review.activeTab = 0
   review.lastMessage = ""
@@ -185,7 +189,7 @@ ShellRoot {
         out = ROOT / "docs/ui-review"
         out.mkdir(parents=True, exist_ok=True)
         scenes = [
-            ("worksheet", 436, {}),
+            ("worksheet", 456, {}),
             ("practice", 676, {"REVIEW_PRACTICE": "1"}),
             ("settings", 676, {"REVIEW_SETTINGS": "1"}),
             ("progress", 676, {"REVIEW_TAB": "1"}),
@@ -193,6 +197,9 @@ ShellRoot {
             ("profile", 536, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "profile"}),
             ("reprint", 436, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "reprint"}),
             ("history", 536, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "history"}),
+            ("report-options", 676, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "reports"}),
+            ("reminder-options", 676, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "reminders"}),
+            ("unfinished", 536, {"REVIEW_SETTINGS": "1", "REVIEW_PAGE": "unfinished"}),
         ]
         for name, height, options in scenes:
             image = out / f"{name}.png"

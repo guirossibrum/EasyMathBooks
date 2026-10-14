@@ -19,7 +19,7 @@ def main():
                   '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check',
                   '--hide-scrollbars', '--no-pdf-header-footer', '--run-all-compositor-stages-before-draw',
                   f'--user-data-dir={tmp}']
-        for motif in MOTIFS:
+        for motif in (*MOTIFS, 'flowers-timed', 'flowers-archived'):
             html = OUT / f'report-{motif}.html'
             screen = OUT / f'report-{motif}-screen.png'
             pdf = OUT / f'report-{motif}.pdf'
@@ -36,6 +36,11 @@ def main():
                             str(pdf), str(OUT / f'report-{motif}-print')], check=True,
                            capture_output=True)
             print(f'PASS {motif}: screen preview + one-page PDF + print preview', flush=True)
+        for motif in MOTIFS:
+            subprocess.run(['pdftoppm', '-f', '1', '-singlefile', '-scale-to', '1300', '-png',
+                            str(OUT/f'worksheet-{motif}.pdf'), str(OUT/f'worksheet-{motif}')],
+                           check=True, capture_output=True)
+        print('PASS six themed worksheet print previews')
         tv = OUT / 'report-airplanes-tv.png'
         result = subprocess.run(common + [f'--screenshot={tv}', '--window-size=1920,1080',
                                          (OUT / 'report-airplanes.html').as_uri() + '?tv'],

@@ -1,17 +1,83 @@
 # Easy Math Books
 
-Kumon-style math worksheets for the Omarchy bar. One printable page per sheet,
-filled to capacity, plus a matching answer key. Sheet codes are deterministic:
-**1-1** is level 1 seed 1, **1-502** is level 1 seed 502. The same code always
-reprints the same problems.
+**A little math practice. A beautiful record of growing up.**
 
-| Panel | Sheet 1-1 | Sheet 5-1 |
+An Omarchy bar widget for creating printable math worksheets, recording practice,
+and turning a child's weekly effort into a keepsake parents can print, save, or
+put on the TV. Everything stays on your computer.
+
+![A weekly math journey: seven days, two levels, and a colorful family keepsake](docs/ui-review/report-flowers-screen.png)
+
+## From practice to something worth keeping
+
+| A compact widget | A personal worksheet | A report for the whole family |
 |:---:|:---:|:---:|
-| ![Easy Math Books panel](docs/screenshots/panel.png) | ![Worksheet 1-1](docs/screenshots/worksheet-1-1.png) | ![Worksheet 5-1](docs/screenshots/worksheet-5-1.png) |
+| ![Worksheet view](docs/ui-review/worksheet.png) | ![Flower motif worksheet](docs/ui-review/worksheet-flowers.png) | ![Weekly report](docs/ui-review/report-flowers-print.png) |
 
-Student names, practice times, and filled worksheets stay on this machine.
-They are **not** in this repository. The first run creates
-`~/.local/share/easymathbooks/easymath.db`.
+- **40 math levels**, from single-digit addition to factoring quadratics.
+- **Deterministic sheet codes.** `2-3` always reproduces the same exercise plan.
+- **A simple flow:** choose student and level → create → time/score → save → progress.
+- **No scrolling inside the widget.** Occasional settings have their own compact screens.
+- **Reprint unfinished sheets.** Replace a lost worksheet with the same problems and original print settings, or record its result.
+- **Weekly keepsakes.** Past seven days by default; select any earlier week with results in the gear menu.
+- **Every practiced level counts.** Each level has its own results card, alongside total correct exercises and overall accuracy.
+- **Timing is optional.** Off by default; parents can choose a report that celebrates correct answers without showing speed comparisons.
+- **52 positive messages**, one for each week of the year.
+- **Optional local reminders**, with independent toggles, a parent-entered missed-day threshold, and a parent-chosen notification time.
+
+## Choose their personal touch
+
+Student profiles offer **Female** or **Male**, with three motifs each. A profile
+can be changed anytime. Existing students keep their records and use a neutral
+stars design until a motif is explicitly saved.
+
+| Flowers | Unicorns | Butterflies |
+|:---:|:---:|:---:|
+| [![Flowers](docs/ui-review/report-flowers-print.png)](docs/ui-review/report-flowers.pdf) | [![Unicorns](docs/ui-review/report-unicorns-print.png)](docs/ui-review/report-unicorns.pdf) | [![Butterflies](docs/ui-review/report-butterflies-print.png)](docs/ui-review/report-butterflies.pdf) |
+
+| Sports | Cars | Airplanes |
+|:---:|:---:|:---:|
+| [![Sports](docs/ui-review/report-sports-print.png)](docs/ui-review/report-sports.pdf) | [![Cars](docs/ui-review/report-cars-print.png)](docs/ui-review/report-cars.pdf) | [![Airplanes](docs/ui-review/report-airplanes-print.png)](docs/ui-review/report-airplanes.pdf) |
+
+Worksheets can stay **plain** for economical printing or **match the student's
+motif** with colorful stationery. The exercise plan and writing space stay the
+same. Answer keys are available separately.
+
+## A weekly report, your way
+
+**Progress → Open past 7 days report** opens a local HTML document in your browser.
+The gear menu provides **Weekly reports & timing**, where you can choose a previous
+Monday–Sunday week with saved results and decide whether timing belongs in the report.
+
+The keepsake includes worksheet count, accuracy, total correct exercises, seven
+days of activity, results for every practiced level, a positive weekly message,
+and room for a parent to sign. Use **Print / save PDF** to keep it on paper or as
+a PDF. **Show practice journal** reveals detailed results and includes them when
+printing. The timing preference applies to that journal too.
+
+**TV view** presents the keepsake fullscreen, without the journal button. Escape
+exits fullscreen. The file needs no account, external fonts, images, or network
+connection, so it can be copied to another device.
+
+![The airplane motif in TV view](docs/ui-review/report-airplanes-tv.png)
+
+## Reminders belong to the parent
+
+Both reminder switches start **off**. The first enable asks for permission to
+send local Omarchy notifications. Each student has independent preferences:
+
+| Option | Parent control |
+|---|---|
+| Weekly report reminder | A separate on/off switch; one reminder per new week when the preceding week has results. |
+| Missed-practice reminder | A separate on/off switch; type how many days without recorded practice are acceptable. |
+| Days without practice | Enter **1** for the first missed day, **3** for three days, or another number from 1–365. |
+| Reminder time | Enter a local **24-hour time**, such as `18:00`, then save. Both reminder types use that time. |
+
+After the selected day threshold, missed-practice notifications occur at most
+once a day, after the chosen time, until practice is recorded again. Weekly
+notifications occur after the chosen time on the first running day of the new
+week. Reminders work while the widget is loaded in Omarchy and check once a
+minute; no background service or external account is installed.
 
 ## Install
 
@@ -19,63 +85,40 @@ They are **not** in this repository. The first run creates
 omarchy plugin add https://github.com/guirossibrum/EasyMathBooks.git --enable
 ```
 
-That clones this repository into `~/.config/omarchy/plugins/grbrum.easymath`
-and places the calculator icon on the right of the bar. The first time you
-create a worksheet, the plugin installs Python `reportlab` into
-`~/.local/share/easymathbooks/venv` (not inside the plugin folder).
+Requires Omarchy, Python 3, and ReportLab. The first worksheet automatically
+installs ReportLab into `~/.local/share/easymathbooks/venv`. License: MIT.
 
-Dependencies: Python 3, [reportlab](https://pypi.org/project/reportlab/)
-(pulled in automatically on first generate). License: MIT.
+The calculator icon opens the widget. **Worksheet** is for preparation and
+practice; **Progress** is for results and reports. The **gear** holds paper size,
+worked examples, answer keys, motif stationery, archived reports, reminder
+preferences, reprinting by code, and student management. Escape closes the panel.
+Right-clicking the calculator creates the current worksheet.
 
-## Usage
+## Your family's data stays local
 
-Click the calculator icon to open the compact widget. On **Worksheet**, choose
-student and level, then **Create & open worksheet**. The app opens the PDF and
-moves to practice for that exact sheet. Start the timer or enter minutes and
-seconds afterward, record the number correct, and save. Saving opens **Progress**.
-Use **Prepare next worksheet** when printing several sheets.
+Names, practice results, notification preferences, worksheets, and reports are
+stored under `~/.local/share/easymathbooks/` (or your `XDG_DATA_HOME`). They are
+never uploaded to this repository. Notifications go only to your local desktop.
+All screenshots and downloadable examples in this README use **fictional students**.
 
-The **gear** holds paper size, worked examples, answer keys, reprinting by sheet
-code, and student management. Student profiles offer Male/Female and three
-report motifs for each: flowers/unicorns/butterflies or sports/cars/airplanes.
-Existing students keep their records and use a neutral stars report until a
-profile is chosen. Widget pages fit without scrolling; recent practice entries
-use pagination.
-
-On **Progress**, open a personal **math journey** report for the last 30 days or
-all practice. The self-contained HTML report opens locally in the browser:
-print it, save it as PDF, show the detailed practice journal, or use **TV view**.
-Reports live under `~/.local/share/easymathbooks/output/reports/`. There are no
-external fonts, images, accounts, or network requests.
-
-See the [UI review gallery](docs/ui-review/README.md) for fictional student
-screenshots, all six printable report designs, and the TV preview.
-
-Escape closes the panel. Right-click the icon to print the current sheet.
-
-```sh
-omarchy bar move grbrum.easymath --section right
-omarchy-shell shell summon grbrum.easymath '{}'
-```
-
-CLI from a checkout:
-
-```sh
-python generate.py --list
-python generate.py --sheet 1-1
-python generate.py --sheet 1-502
-python generate.py --level 1 --sheets 5
-```
-
-## Remove
+Removing the widget preserves your records:
 
 ```sh
 omarchy plugin remove grbrum.easymath
 ```
 
-That removes the bar widget and the cloned plugin folder. It does not delete
-`~/.local/share/easymathbooks/` (students and past worksheets). Remove that
-directory yourself if you want a clean slate.
+## Try the design and develop locally
+
+See the [complete preview gallery](docs/ui-review/README.md), including printable
+PDFs, themed worksheets, timing examples, and every widget screen.
+[AGENTS.md](AGENTS.md) documents the architecture, feature contracts, privacy,
+tests, and reversible local installation workflow.
+
+```sh
+python generate.py --list
+python generate.py --sheet 1-502
+python generate.py --level 1 --sheets 5
+```
 
 ## How a page is prepared
 

@@ -34,6 +34,9 @@ from store import (
     set_setting,
     student_by_id,
     update_student,
+    set_student_options,
+    pending_sheets,
+    report_weeks,
 )
 
 
@@ -166,6 +169,8 @@ def snapshot(settings=None, extra=None):
         "report": report,
         "last_sheet": last,
         "today": date.today().isoformat(),
+        "pending_sheets": pending_sheets(student_id),
+        "report_weeks": report_weeks(student_id),
     }
     if extra:
         data.update(extra)
@@ -183,6 +188,7 @@ def cmd_generate(payload):
     if level is None:
         return fail("Unknown level.")
     student_name = None
+    student = None
     student_id = settings["student_id"]
     if student_id:
         student = student_by_id(student_id)
@@ -197,6 +203,7 @@ def cmd_generate(payload):
         examples=settings["examples"],
         pages=1,
         student_name=student_name,
+        motif=(student.get("motif") or "stars") if student and student.get("themed_sheets") else None,
     )
     record_sheet(
         result.code,
@@ -238,6 +245,28 @@ def cmd_add_student(payload):
     return ok(snapshot(current_settings(), {"student": student}))
 
 
+def cmd_set_student_options(payload):
+    student_id = as_int(payload.get("student_id"))
+    set_student_options(student_id, payload)
+    return ok(snapshot(extra={"options_saved": True}))
+
+
+def cmd_check_reminders(payload):
+    from reminders import check_reminders
+    return ok({"reminders_checked": True, "notifications_sent": check_reminders()})
+
+
+def cmd_reprint_pending(payload):
+    settings = current_settings()
+    code = str(payload.get("sheet_code") or "")
+    row = next((r for r in pending_sheets(settings["student_id"]) if r["sheet_code"] == code), None)
+    if row is None:
+        return fail("Choose a printed worksheet without a saved result.")
+    return cmd_generate({"student_id": settings["student_id"], "level": row["level"],
+                         "variant": row["variant"], "paper": row["paper"], "examples": bool(row["examples"]),
+                         "answers": settings["answers"]})
+
+
 def cmd_update_student(payload):
     student = update_student(as_int(payload.get("student_id")),
                              str(payload.get("name") or ""),
@@ -251,9 +280,12 @@ def cmd_export_report(payload):
     student = student_by_id(student_id) if student_id else None
     if not student:
         return fail("Choose a student first.")
+    if payload.get("week_start") and payload["week_start"] not in {w["start"] for w in report_weeks(student_id)}:
+        return fail("Choose a week with recorded practice.")
     path = write_report(student, list_sessions(student_id),
-                        period=payload.get("period", "month"),
-                        paper=current_settings()["paper"])
+                        period=payload.get("period", "week"),
+                        paper=current_settings()["paper"],
+                        week_start=payload.get("week_start"))
     return ok(snapshot(extra={"report_document": {"path": str(path)}}))
 
 
@@ -335,6 +367,9 @@ COMMANDS = {
     "add-student": cmd_add_student,
     "rename-student": cmd_rename_student,
     "update-student": cmd_update_student,
+    "set-student-options": cmd_set_student_options,
+    "check-reminders": cmd_check_reminders,
+    "reprint-pending": cmd_reprint_pending,
     "export-report": cmd_export_report,
     "delete-student": cmd_delete_student,
     "save-session": cmd_save_session,

@@ -740,16 +740,20 @@ def blank(c, x0, x1, y):
     c.setStrokeGray(0)
 
 
-def draw_header(c, W, H_, level, code, count, student_name=None):
+def draw_header(c, W, H_, level, code, count, student_name=None, motif=None):
     c.setFillColorRGB(*GREY)
     c.setFont(FONT, 9)
     c.drawString(MARGIN, H_ - 30, "EasyMathBooks")
-    c.drawRightString(W - MARGIN, H_ - 30, f"Sheet {code}")
+    c.drawRightString(W - MARGIN - (50 if motif else 0), H_ - 30, f"Sheet {code}")
     c.setFillGray(0)
     c.setFont(BOLD, 15)
     c.drawString(MARGIN, H_ - 50, f"Level {level.num}")
     c.setFont(FONT, 12)
-    c.drawString(MARGIN + 74, H_ - 50, level.title.replace(" x ", " × ").replace(" - ", f" {M} "))
+    title = level.title.replace(" x ", " × ").replace(" - ", f" {M} ")
+    if motif:
+        while stringWidth(title, FONT, 12) > W-2*MARGIN-130 and len(title) > 4:
+            title = title[:-4] + "..."
+    c.drawString(MARGIN + 74, H_ - 50, title)
 
     c.setFont(BOLD, 11)
     y = H_ - 80
@@ -928,13 +932,16 @@ def draw_footer(c, W, level, code, page, pages):
     c.setFillGray(0)
 
 
-def draw_sheet(c, W, H_, level, code, pages, example=None, hints=False, student_name=None):
+def draw_sheet(c, W, H_, level, code, pages, example=None, hints=False, student_name=None, motif=None):
     total = sum(len(p) for p in pages)
     col_w = (W - 2 * MARGIN) / level.cols
     start = 0
     for pi, problems in enumerate(pages):
+        if motif:
+            from worksheet_style import draw_stationery
+            draw_stationery(c, W, H_, motif)
         if pi == 0:
-            draw_header(c, W, H_, level, code, total, student_name)
+            draw_header(c, W, H_, level, code, total, student_name, motif)
             draw_diamond(c, MARGIN + 5, H_ - 138, 4.5)
             c.setFont(FONT, 12)
             c.drawString(MARGIN + 16, H_ - 142, instruction(level))
@@ -1055,7 +1062,7 @@ def preview_sheet(level, variant, pagesize, examples=True, pages=1):
 
 
 def generate_one(level, variant, outdir, pagesize, answers=True, examples=True,
-                 pages=1, student_name=None):
+                 pages=1, student_name=None, motif=None):
     """Write one worksheet PDF (and optional answer key) for sheet code like 1-1."""
     code = sheet_code(level.num, variant)
     chunks, example = plan_sheet(level, variant, pagesize, examples, pages)
@@ -1065,12 +1072,14 @@ def generate_one(level, variant, outdir, pagesize, answers=True, examples=True,
     base = f"Level_{level.num:02d}_{code}_{slug(level.title)}"
     if student_name:
         base += f"_{slug(student_name)}"
+    if motif:
+        base += f"_motif-{motif}"
     path = outdir / f"{base}.pdf"
     W, H_ = pagesize
     c = canvas.Canvas(str(path), pagesize=pagesize, invariant=1)
     c.setTitle(f"EasyMathBooks Sheet {code}: {level.title}")
     draw_sheet(c, W, H_, level, code, chunks, example,
-               hints=examples, student_name=student_name)
+               hints=examples, student_name=student_name, motif=motif)
     c.save()
     apath = None
     if answers:

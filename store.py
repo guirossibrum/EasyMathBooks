@@ -113,9 +113,21 @@ def init_db():
             """
         )
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(students)")}
-        for column in ("gender", "motif"):
+        additions = {"gender": "TEXT", "motif": "TEXT",
+                     "show_timing": "INTEGER NOT NULL DEFAULT 0",
+                     "themed_sheets": "INTEGER NOT NULL DEFAULT 0",
+                     "weekly_reminder": "INTEGER NOT NULL DEFAULT 0",
+                     "missed_reminder": "INTEGER NOT NULL DEFAULT 0",
+                     "notification_consent": "INTEGER NOT NULL DEFAULT 0",
+                     "missed_days": "INTEGER NOT NULL DEFAULT 3",
+                     "reminder_time": "TEXT NOT NULL DEFAULT '18:00'"}
+        for column, definition in additions.items():
             if column not in columns:
-                conn.execute(f"ALTER TABLE students ADD COLUMN {column} TEXT")
+                conn.execute(f"ALTER TABLE students ADD COLUMN {column} {definition}")
+        conn.execute("""CREATE TABLE IF NOT EXISTS reminder_deliveries (
+            student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL, period TEXT NOT NULL,
+            PRIMARY KEY(student_id, kind, period))""")
 
 
 MOTIFS = {
@@ -174,7 +186,7 @@ def all_settings():
 def list_students():
     with session() as conn:
         rows = conn.execute(
-            "SELECT id, name, gender, motif, created_at FROM students ORDER BY name COLLATE NOCASE"
+            "SELECT * FROM students ORDER BY name COLLATE NOCASE"
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -191,7 +203,7 @@ def add_student(name, gender=None, motif=None):
             (name, gender, motif, now_iso()),
         )
         row = conn.execute(
-            "SELECT id, name, gender, motif, created_at FROM students WHERE id = last_insert_rowid()"
+            "SELECT * FROM students WHERE id = last_insert_rowid()"
         ).fetchone()
     return dict(row)
 
@@ -212,7 +224,7 @@ def delete_student(student_id):
 def student_by_id(student_id):
     with session() as conn:
         row = conn.execute(
-            "SELECT id, name, gender, motif, created_at FROM students WHERE id = ?", (student_id,)
+            "SELECT * FROM students WHERE id = ?", (student_id,)
         ).fetchone()
     return dict(row) if row else None
 
@@ -683,3 +695,66 @@ def format_duration(seconds):
     if h:
         return f"{h}:{m:02d}:{s:02d}"
     return f"{m}:{s:02d}"
+
+
+def set_student_options(student_id, options):
+    import re
+    student = student_by_id(student_id)
+    if not student:
+        raise ValueError("Choose a student first.")
+    allowed = {"show_timing", "themed_sheets", "weekly_reminder", "missed_reminder",
+               "notification_consent", "missed_days", "reminder_time"}
+    values = {}
+    for key, value in options.items():
+        if key not in allowed:
+            continue
+        if key == "missed_days":
+            value = int(value)
+            if not 1 <= value <= 365:
+                raise ValueError("Choose 1–365 days without practice.")
+        elif key == "reminder_time":
+            if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", str(value)):
+                raise ValueError("Use a reminder time such as 18:00 (24-hour clock).")
+        else:
+            if not isinstance(value, bool):
+                raise ValueError("Toggle values must be true or false.")
+            value = int(value)
+        values[key] = value
+    consent = values.get("notification_consent", student["notification_consent"])
+    if not consent and (values.get("weekly_reminder") or values.get("missed_reminder")):
+        raise ValueError("Allow local notifications before enabling reminders.")
+    if values.get("notification_consent") == 0:
+        values.update(weekly_reminder=0, missed_reminder=0)
+    if values:
+        assignments = ", ".join(f"{key} = ?" for key in values)
+        with session() as conn:
+            conn.execute(f"UPDATE students SET {assignments} WHERE id = ?", (*values.values(), student_id))
+    return student_by_id(student_id)
+
+
+def pending_sheets(student_id):
+    if not student_id:
+        return []
+    with session() as conn:
+        rows = conn.execute("""
+            SELECT sh.* FROM sheets sh
+            WHERE sh.student_id = ?
+              AND sh.id = (SELECT MAX(s2.id) FROM sheets s2
+                           WHERE s2.student_id = sh.student_id AND s2.sheet_code = sh.sheet_code)
+              AND NOT EXISTS (SELECT 1 FROM sessions se
+                              WHERE se.student_id = sh.student_id AND se.sheet_code = sh.sheet_code)
+            ORDER BY sh.level, sh.variant
+        """, (student_id,)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def report_weeks(student_id):
+    weeks = {}
+    for row in list_sessions(student_id) if student_id else []:
+        day = _as_date(row["taken_at"])
+        monday = day - timedelta(days=day.weekday())
+        key = monday.isoformat()
+        weeks[key] = weeks.get(key, 0) + 1
+    return [{"start": key, "end": (date.fromisoformat(key)+timedelta(days=6)).isoformat(),
+             "count": count, "label": f"{key} to {(date.fromisoformat(key)+timedelta(days=6)).isoformat()} · {count} sheets"}
+            for key, count in sorted(weeks.items(), reverse=True)]

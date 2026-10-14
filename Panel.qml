@@ -34,7 +34,39 @@ Panel {
   property string profileId: ""
   property string profileGender: "female"
   property string profileMotif: "flowers"
-  property string reportPeriod: "month"
+  property string reportPeriod: "week"
+  property string reportWeek: ""
+  property string unfinishedCode: ""
+  property string pendingReminderOption: ""
+  readonly property var selectedStudent: {
+    for (var i = 0; i < students.length; i++)
+      if (String(students[i].id) === studentId) return students[i]
+    return ({})
+  }
+  readonly property var weekOptions: {
+    var out = [{value: "", label: "Past 7 days"}]
+    var weeks = snap.report_weeks || []
+    for (var i = 0; i < weeks.length; i++) out.push({value: weeks[i].start, label: weeks[i].label})
+    return out
+  }
+  readonly property var unfinishedOptions: {
+    var out = [{value: "", label: "Choose a printed worksheet"}]
+    var sheets = snap.pending_sheets || []
+    for (var i = 0; i < sheets.length; i++)
+      out.push({value: sheets[i].sheet_code, label: "Sheet " + sheets[i].sheet_code + " · " + sheets[i].problem_count + " problems"})
+    return out
+  }
+  function setOption(key, value) {
+    if (!studentId || busy) return
+    if ((key === "weekly_reminder" || key === "missed_reminder") && value && !selectedStudent.notification_consent) {
+      pendingReminderOption = key
+      confirmKind = "notifications"
+      return
+    }
+    var payload = {student_id: Number(studentId)}
+    payload[key] = value
+    run("set-student-options", payload)
+  }
   readonly property var genderOptions: [{value: "female", label: "Female"}, {value: "male", label: "Male"}]
   readonly property var motifOptions: {
     var choices = profileGender === "female"
@@ -103,6 +135,8 @@ Panel {
     createdSheet = null
     nextSheetCode = ""
     sessionPage = 0
+    reportWeek = ""
+    unfinishedCode = ""
     resetTimer()
     scoreValue = 0
     notesText = ""
@@ -257,6 +291,7 @@ Panel {
       practiceCreatedSheet()
     }
     if (data.report_document) openPath(data.report_document.path)
+    if (data.options_saved) lastMessage = "Preferences saved"
     if (data.profile_saved) { settingsPage = "students"; lastMessage = "Student profile saved" }
     if (data.student) {
       newStudentName = ""
@@ -400,6 +435,13 @@ Panel {
     onTriggered: root.refresh()
   }
 
+  Timer {
+    interval: 60000
+    repeat: true
+    running: root.hydrated
+    onTriggered: if (!root.busy && root.pendingCmd === "") root.run("check-reminders", {})
+  }
+
   Process {
     id: helper
     stdout: StdioCollector {
@@ -411,7 +453,7 @@ Panel {
         catch (e) { root.lastError = "Could not read EasyMathBooks helper output."; return }
         if (!data.ok) {
           root.lastError = String(data.error || "That did not work.")
-        } else {
+        } else if (!data.reminders_checked) {
           root.applySnap(data)
         }
         if (root.pendingCmd !== "") {
@@ -437,6 +479,13 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { root.refresh(); return "ok" }
+    function preferences(section: string): string {
+      if (["print", "reports", "reminders", "unfinished", "students"].indexOf(section) === -1) return "unknown"
+      root.settingsPage = section
+      root.settingsOpen = true
+      root.open()
+      return section
+    }
     function tab(name: string): string {
       var n = String(name || "").toLowerCase()
       root.settingsOpen = false
@@ -576,8 +625,19 @@ Panel {
           Loader {
             id: tabLoader
             width: parent.width
-            sourceComponent: root.settingsOpen ? (root.settingsPage === "profile" ? profileTab : (root.settingsPage === "students" ? studentsTab : (root.settingsPage === "reprint" ? reprintTab : (root.settingsPage === "history" ? historyTab : settingsTab))))
-              : (root.activeTab === 1 ? progressTab : (root.practiceMode ? practiceTab : sheetTab))
+            sourceComponent: {
+              if (!root.settingsOpen) return root.activeTab === 1 ? progressTab : (root.practiceMode ? practiceTab : sheetTab)
+              switch (root.settingsPage) {
+                case "profile": return profileTab
+                case "students": return studentsTab
+                case "reprint": return reprintTab
+                case "history": return historyTab
+                case "reports": return reportOptionsTab
+                case "reminders": return reminderOptionsTab
+                case "unfinished": return unfinishedTab
+                default: return settingsTab
+              }
+            }
           }
         }
       }
@@ -585,16 +645,22 @@ Panel {
       ConfirmDialog {
         anchors.fill: parent
         opened: root.confirmKind !== ""
-        message: root.confirmKind === "student"
+        message: root.confirmKind === "notifications"
+          ? "Allow Easy Math Books to send local Omarchy notifications? Each reminder has its own switch, day threshold, and time."
+          : root.confirmKind === "student"
           ? "Delete this student and their sessions?"
           : "Delete this practice session?"
-        confirmText: "Delete"
+        confirmText: root.confirmKind === "notifications" ? "Allow notifications" : "Delete"
         foreground: root.foreground
         background: Color.popups.background
         fontFamily: root.fontFamily
         onCanceled: root.confirmKind = ""
         onConfirmed: {
-          if (root.confirmKind === "student")
+          if (root.confirmKind === "notifications") {
+            var payload = {student_id: Number(root.studentId), notification_consent: true}
+            payload[root.pendingReminderOption] = true
+            root.run("set-student-options", payload)
+          } else if (root.confirmKind === "student")
             root.run("delete-student", { student_id: Number(root.studentId) })
           else if (root.confirmKind === "session")
             root.run("delete-session", { session_id: root.confirmSessionId })
@@ -719,6 +785,15 @@ Panel {
 
 
       Button {
+        visible: root.studentId !== "" && root.unfinishedOptions.length > 1
+        text: "Reprint an unfinished worksheet"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: { root.settingsOpen = true; root.settingsPage = "unfinished" }
+      }
+
+      Button {
         focusable: true
         text: root.timerOn ? "Practice · " + root.formatDuration(root.elapsedSec)
           : (root.createdSheet ? "Record sheet " + root.createdSheet.code : "Record an existing worksheet")
@@ -780,6 +855,30 @@ Panel {
 
 
 
+      Toggle {
+        width: parent.width
+        label: "Match worksheets to their motif"
+        description: "Colorful stationery; the exercises stay the same."
+        enabled: root.studentId !== "" && !root.busy
+        checked: !!root.selectedStudent.themed_sheets
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.setOption("themed_sheets", !root.selectedStudent.themed_sheets)
+      }
+      Button {
+        text: "Weekly reports & timing →"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.settingsPage = "reports"
+      }
+      Button {
+        text: "Reminder preferences →"
+        focusable: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.settingsPage = "reminders"
+      }
       Button {
         text: "Reprint by sheet code →"
         focusable: true
@@ -794,6 +893,124 @@ Panel {
         foreground: root.foreground
         fontFamily: root.fontFamily
         onClicked: root.settingsPage = "students"
+      }
+    }
+  }
+
+  Component {
+    id: reportOptionsTab
+    Column {
+      width: tabLoader.width
+      spacing: Style.space(12)
+      Button { text: "← Settings"; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: root.settingsPage = "print" }
+      AppDropdown {
+        width: parent.width; label: "Student"; value: root.studentId; options: root.studentOptions
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onChanged: function(v) { root.studentId = v; root.refresh() }
+      }
+      Toggle {
+        width: parent.width
+        label: "Show timing in reports"
+        description: "Off celebrates accuracy and correct exercises only."
+        enabled: root.studentId !== "" && !root.busy
+        checked: !!root.selectedStudent.show_timing
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.setOption("show_timing", !root.selectedStudent.show_timing)
+      }
+      AppDropdown {
+        width: parent.width; label: "Report week"; value: root.reportWeek; options: root.weekOptions
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onChanged: function(v) { root.reportWeek = v }
+      }
+      Text {
+        width: parent.width; text: "Earlier weeks appear when they have saved practice results. Reports include every level practiced."
+        textFormat: Text.PlainText; wrapMode: Text.WordWrap; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+      }
+      Button {
+        text: "Open selected week's report"; selected: true; focusable: true
+        enabled: root.studentId !== "" && !root.busy
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.run("export-report", {student_id: Number(root.studentId), period: "week", week_start: root.reportWeek || null})
+      }
+    }
+  }
+
+  Component {
+    id: reminderOptionsTab
+    Column {
+      width: tabLoader.width
+      spacing: Style.space(10)
+      Button { text: "← Settings"; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: root.settingsPage = "print" }
+      AppDropdown {
+        width: parent.width; label: "Reminders for"; value: root.studentId; options: root.studentOptions
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onChanged: function(v) { root.studentId = v; root.refresh() }
+      }
+      Toggle {
+        width: parent.width; label: "Weekly report reminder"
+        description: "Once a week for the previous week's results."
+        checked: !!root.selectedStudent.weekly_reminder; enabled: root.studentId !== "" && !root.busy
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.setOption("weekly_reminder", !root.selectedStudent.weekly_reminder)
+      }
+      Toggle {
+        width: parent.width; label: "Missed-practice reminder"
+        description: "At most once per day after your chosen threshold."
+        checked: !!root.selectedStudent.missed_reminder; enabled: root.studentId !== "" && !root.busy
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.setOption("missed_reminder", !root.selectedStudent.missed_reminder)
+      }
+      Row {
+        width: parent.width; spacing: Style.space(12)
+        NumberField {
+          id: missedDaysField; label: "Days without practice"; value: Number(root.selectedStudent.missed_days || 3)
+          from: 1; to: 365; fieldWidth: Style.space(170)
+          foreground: root.foreground; fontFamily: root.fontFamily
+        }
+        Column {
+          width: parent.width - missedDaysField.implicitWidth - parent.spacing
+          spacing: Style.spacing.labelGap
+          Text { text: "Reminder time (24h)"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+          TextField { id: reminderTimeField; width: parent.width; text: root.selectedStudent.reminder_time || "18:00"; placeholderText: "18:00"; foreground: root.foreground }
+        }
+      }
+      Text {
+        width: parent.width; text: "Choose 1 for the first missed day, or any number you accept. Notifications wait until your chosen local time. Both reminders start off."
+        textFormat: Text.PlainText; wrapMode: Text.WordWrap; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+      }
+      Button {
+        text: "Save day count & time"; selected: true; focusable: true
+        enabled: root.studentId !== "" && !root.busy
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.run("set-student-options", {student_id: Number(root.studentId), missed_days: root.spinValue(missedDaysField, 3), reminder_time: reminderTimeField.text.trim()})
+      }
+    }
+  }
+
+  Component {
+    id: unfinishedTab
+    Column {
+      width: tabLoader.width; spacing: Style.space(12)
+      Button { text: "← Worksheet"; focusable: true; foreground: root.foreground; fontFamily: root.fontFamily; onClicked: { root.settingsOpen = false; root.activeTab = 0 } }
+      PanelSectionHeader { text: "Printed, waiting for a result"; foreground: root.foreground; fontFamily: root.fontFamily }
+      AppDropdown {
+        width: parent.width; label: "Worksheet"; value: root.unfinishedCode; options: root.unfinishedOptions
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onChanged: function(v) { root.unfinishedCode = v }
+      }
+      Text {
+        width: parent.width; text: "Lost a page or want a fresh copy? Reprint the same problems, with the original paper size and worked-example setting."
+        textFormat: Text.PlainText; wrapMode: Text.WordWrap; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+      }
+      Button {
+        text: "Reprint selected sheet"; selected: true; focusable: true; enabled: root.unfinishedCode !== "" && !root.busy
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: root.run("reprint-pending", {sheet_code: root.unfinishedCode})
+      }
+      Button {
+        text: "Record its result"; focusable: true; enabled: root.unfinishedCode !== "" && !root.busy
+        foreground: root.foreground; fontFamily: root.fontFamily
+        onClicked: { root.createdSheet = null; root.applyCode(root.unfinishedCode); root.practiceMode = true; root.settingsOpen = false; root.activeTab = 0 }
       }
     }
   }
@@ -1306,21 +1523,14 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
       }
-      ButtonGroup {
-        options: [{value: "month", label: "Last 30 days"}, {value: "all", label: "All practice"}]
-        value: root.reportPeriod
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        onChanged: function(v) { root.reportPeriod = v }
-      }
       Button {
-        text: root.busy ? "Preparing report…" : "Open beautiful report"
+        text: root.busy ? "Preparing report…" : "Open past 7 days report"
         enabled: root.studentId !== "" && !root.busy
         selected: true
         focusable: true
         foreground: root.foreground
         fontFamily: root.fontFamily
-        onClicked: root.run("export-report", {student_id: Number(root.studentId), period: root.reportPeriod})
+        onClicked: root.run("export-report", {student_id: Number(root.studentId), period: "week"})
       }
       Button {
         text: "Change their report motif"
