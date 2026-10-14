@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+PLUGIN="$(cd "$HERE/.." && pwd)"
+if [[ -f "$PLUGIN/app-root" ]]; then
+  ROOT="$(head -n1 "$PLUGIN/app-root")"
+else
+  ROOT="$(cd "$PLUGIN/.." && pwd)"
+fi
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+  PY="$ROOT/.venv/bin/python"
+else
+  PY="$(command -v python3)"
+fi
+exec "$PY" "$ROOT/cli.py" "$@"

@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Student names, sessions, and generated worksheets stay on this machine.
+data/
+output/
+*.db
+*.db-journal
+
+# Written by ./easymath when installing the Omarchy plugin.
+plugin/app-root

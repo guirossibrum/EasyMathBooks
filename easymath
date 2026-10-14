@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+PLUGIN="$HOME/.config/omarchy/plugins/grbrum.easymath"
+
+mkdir -p "$PLUGIN/bin"
+cp -f "$ROOT/plugin/manifest.json" "$PLUGIN/manifest.json"
+cp -f "$ROOT/plugin/Panel.qml" "$PLUGIN/Panel.qml"
+cp -f "$ROOT/plugin/AppDropdown.qml" "$PLUGIN/AppDropdown.qml"
+cp -f "$ROOT/plugin/AppSearchableDropdown.qml" "$PLUGIN/AppSearchableDropdown.qml"
+cp -f "$ROOT/plugin/README.md" "$PLUGIN/README.md"
+cp -f "$ROOT/plugin/bin/easymath-cli" "$PLUGIN/bin/easymath-cli"
+printf '%s\n' "$ROOT" > "$PLUGIN/app-root"
+chmod +x "$PLUGIN/bin/easymath-cli"
+
+omarchy plugin validate "$PLUGIN"
+omarchy plugin enable grbrum.easymath --section right || true
+omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+sleep 0.3
+omarchy-shell -q grbrum.easymath toggle || omarchy-shell -q grbrum.easymath open || true

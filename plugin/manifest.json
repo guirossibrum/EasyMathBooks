@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "grbrum.easymath",
+  "name": "Easy Math Books",
+  "version": "1.0.0",
+  "author": "grbrum",
+  "license": "MIT",
+  "description": "Create deterministic Kumon-style math worksheets, time practice, and track student progress.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Easy Math Books",
+    "description": "Worksheets, a practice timer, and student progress in one Omarchy panel.",
+    "category": "Education",
+    "aliases": [
+      "easymath",
+      "math",
+      "worksheets",
+      "kumon"
+    ],
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}
