@@ -36,9 +36,16 @@ Panel {
   property string profileMotif: "flowers"
   property string reportPeriod: "month"
   readonly property var genderOptions: [{value: "female", label: "Female"}, {value: "male", label: "Male"}]
-  readonly property var motifOptions: profileGender === "female"
-    ? [{value: "flowers", label: "Flowers"}, {value: "unicorns", label: "Unicorns"}, {value: "butterflies", label: "Butterflies"}]
-    : [{value: "sports", label: "Sports"}, {value: "cars", label: "Cars"}, {value: "airplanes", label: "Airplanes"}]
+  readonly property var motifOptions: {
+    var choices = profileGender === "female"
+      ? [{value: "flowers", label: "Flowers"}, {value: "unicorns", label: "Unicorns"}, {value: "butterflies", label: "Butterflies"}]
+      : (profileGender === "male"
+        ? [{value: "sports", label: "Sports"}, {value: "cars", label: "Cars"}, {value: "airplanes", label: "Airplanes"}]
+        : [])
+    return profileMotif === ""
+      ? [{value: "", label: profileGender ? "Choose a motif" : "Choose Female or Male first"}].concat(choices)
+      : choices
+  }
 
   function editProfile(newProfile) {
     profileId = newProfile ? "" : studentId
@@ -49,8 +56,8 @@ Panel {
       for (var i = 0; i < students.length; i++) {
         if (String(students[i].id) === profileId) {
           newStudentName = students[i].name
-          profileGender = students[i].gender || "female"
-          profileMotif = students[i].motif || (profileGender === "male" ? "sports" : "flowers")
+          profileGender = students[i].gender || ""
+          profileMotif = students[i].motif || ""
         }
       }
     }
@@ -1170,7 +1177,9 @@ Panel {
       }
       Text {
         width: parent.width
-        text: "A personal touch for their printable math journey. You can change it anytime."
+        text: root.profileId && root.profileMotif === ""
+          ? "No motif saved yet. Choose a gender and motif, then save the profile."
+          : "Save the profile to use this motif in newly generated reports."
         textFormat: Text.PlainText
         wrapMode: Text.WordWrap
         color: root.dim
@@ -1179,7 +1188,7 @@ Panel {
       }
       Button {
         text: root.profileId ? "Save profile" : "Add student"
-        enabled: String(root.newStudentName).trim() !== "" && !root.busy
+        enabled: String(root.newStudentName).trim() !== "" && root.profileGender !== "" && root.profileMotif !== "" && !root.busy
         selected: true
         focusable: true
         foreground: root.foreground

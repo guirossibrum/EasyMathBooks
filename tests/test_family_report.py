@@ -33,6 +33,9 @@ class FamilyReportTest(unittest.TestCase):
         self.assertEqual(updated['motif'], 'unicorns')
         self.assertEqual(updated['name'], 'Lily Rose')
         self.assertEqual(len(store.list_sessions(student['id'])), 1)
+        html = render_report(updated, store.list_sessions(student['id']), today=date(2026, 10, 13))
+        self.assertIn('A little everyday magic', html)
+        self.assertNotIn('Garden of growth', html)
 
     def test_gender_and_motif_validation(self):
         for gender, motif in [('unknown', 'flowers'), ('female', 'cars'), ('male', 'unicorns')]:

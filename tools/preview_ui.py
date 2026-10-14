@@ -51,7 +51,25 @@ function verifyFlow(data) {
   demoWindow.check(review.createdSheet === null, "Completed sheet must not remain the practice shortcut")
   demoWindow.check(review.parseCode("41-1") === null && review.parseCode("1-0") === null,
     "Invalid codes must be rejected")
+  var legacy = JSON.parse(JSON.stringify(data))
+  for (var i = 0; i < legacy.students.length; i++) {
+    if (String(legacy.students[i].id) === review.studentId) {
+      legacy.students[i].gender = null
+      legacy.students[i].motif = null
+    }
+  }
+  review.applySnap(legacy)
+  review.editProfile(false)
+  demoWindow.check(review.profileGender === "" && review.profileMotif === "",
+    "Existing unconfigured profiles must not appear to have Flowers saved")
+  review.profileGender = "female"
+  review.profileMotif = "flowers"
+  review.saveProfile(review.newStudentName)
+  demoWindow.check(review.demoCommand.cmd === "update-student"
+    && review.demoCommand.payload.motif === "flowers"
+    && review.demoCommand.payload.gender === "female", "Profile save must persist the chosen motif")
   review.applySnap(data)
+  review.settingsOpen = false
   review.activeTab = 0
   review.lastMessage = ""
   console.log("PASS: create → practice → next sheet → save → progress; code and PDF identity")
