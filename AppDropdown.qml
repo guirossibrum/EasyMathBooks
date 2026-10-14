@@ -44,7 +44,7 @@ Item {
     for (var i = 0; i < options.length; i++) {
       if (optionValue(options[i]) === value) return optionLabel(options[i])
     }
-    return value
+    return ""
   }
 
   implicitWidth: Style.spacing.dropdownWidth
@@ -194,7 +194,7 @@ Item {
         function selectCurrent() {
           if (currentIndex < 0 || currentIndex >= root.options.length) return
           var v = root.optionValue(root.options[currentIndex])
-          root.value = v
+          // The parent owns value; assigning here would remove its QML binding.
           root.changed(v)
           root.close()
         }

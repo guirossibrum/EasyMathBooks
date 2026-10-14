@@ -100,6 +100,8 @@ def persist_selection(payload, settings):
     level = as_int(payload.get("level"), settings["level"])
     variant = max(1, as_int(payload.get("variant"), settings["variant"]))
     student_id = payload.get("student_id", settings["student_id"])
+    if student_id not in (None, "") and student_by_id(as_int(student_id)) is None:
+        student_id = None
     if "level" in payload:
         set_setting("level", level)
     if "variant" in payload:
@@ -133,6 +135,7 @@ def snapshot(settings=None, extra=None):
     students = list_students()
     if student_id and not any(s["id"] == student_id for s in students):
         student_id = None
+        settings = dict(settings, student_id=None)
     last = latest_sheet(sheet_code(level_num, variant), student_id)
     examples = bool(last["examples"]) if last is not None else settings["examples"]
     pagesize = paper_size(settings["paper"])

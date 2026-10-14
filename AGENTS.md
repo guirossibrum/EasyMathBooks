@@ -38,6 +38,8 @@ The widget has Worksheet and Progress views plus a gear. `currentPage` and `back
 
 The base Omarchy `Panel` exposes writable `settings` for shell injection. Do not override it with a read-only property. Snapshot settings live at `snap.settings`. The installed plugin is recursively watched: the CLI must use `-B` and `PYTHONDONTWRITEBYTECODE=1` so Python cache writes never reload the widget. Keep reports, databases, and other generated files outside the installed plugin. Publish reports atomically with content-versioned filenames so open documents stay unchanged. Changes to plugin files may leave cached QML components alive; verify the visible widget after reloading. If needed, use the Omarchy skill and restart the shell rather than claiming a rescan alone proved the new UI is loaded.
 
+Dropdowns emit `changed(value)` and let the parent update its state. Never assign their bound `value` internally: that breaks QML bindings and can leave a deleted student's numeric ID on screen. Unknown option values must not be displayed as labels. Runtime checks must select through the actual menu before deleting students, including the last student.
+
 ## Data and privacy
 
 Real data lives in `${XDG_DATA_HOME:-~/.local/share}/easymathbooks/`, including `easymath.db`, generated worksheets and reports. Keep migrations additive and compatible with older code. Back up the database before testing a new installed version. Normal code rollback must preserve practice recorded during a trial.

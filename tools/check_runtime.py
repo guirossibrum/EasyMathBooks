@@ -59,13 +59,45 @@ SCRIPT = r'''
           } else if (runner.phase === 6) {
             var search = runner.findControl(review, "AppSearchableDropdown_")
             runner.check(search.menuOpen, "Level picker must open")
-            search.close()
+            search.testOptionList.currentIndex = 1
+            search.testOptionList.selectCurrent()
+            runner.check(review.levelValue === "2", "Choosing a level must update the app")
+            review.levelValue = "1"
+            runner.check(search.value === "1", "Level picker must follow subsequent app selection changes")
+            review.refresh()
             runner.findControl(review, "AppDropdown_").open()
-          } else {
+          } else if (runner.phase === 7) {
             var dropdown = runner.findControl(review, "AppDropdown_")
             runner.check(dropdown.menuOpen, "Student picker must open")
             dropdown.close()
-            console.log("PASS REAL HELPER: queued saves, invalid input, motif edits, report regeneration, Back context, and dropdown overlays")
+            review.navigate("students")
+            dropdown = runner.findControl(review, "AppDropdown_")
+            var selector = dropdown.testOptionList
+            runner.check(selector !== null, "Student menu must support selection")
+            selector.currentIndex = 2
+            selector.selectCurrent()
+            runner.check(review.studentId === "2", "Selecting the second student must update the app")
+            review.run("delete-student", {student_id: 2})
+          } else if (runner.phase === 8) {
+            var dropdown = runner.findControl(review, "AppDropdown_")
+            runner.check(review.studentId === "" && dropdown.value === "",
+              "Deleting the selected student must clear both app and dropdown selection")
+            runner.check(dropdown.currentLabel() === review.studentOptions[0].label,
+              "Deleted student must show the empty label, never its numeric ID")
+            runner.check(review.students.length === 1 && review.students[0].id === 1,
+              "Deleting one student must preserve the other")
+            var selector = dropdown.testOptionList
+            selector.currentIndex = 1
+            selector.selectCurrent()
+            runner.check(dropdown.currentLabel() === "Runtime Test", "Remaining student must show its name")
+            review.run("delete-student", {student_id: 1})
+          } else {
+            var dropdown = runner.findControl(review, "AppDropdown_")
+            runner.check(review.students.length === 0 && review.studentId === "" && dropdown.value === "",
+              "Deleting the last student must leave an empty selection: " + JSON.stringify([review.students.length, review.studentId, dropdown.value]))
+            runner.check(dropdown.currentLabel() === review.studentOptions[0].label,
+              "Empty student list must show the empty label")
+            console.log("PASS REAL HELPER: queued saves, invalid input, motif edits, report regeneration, Back context, dropdown overlays, and student deletion")
             Qt.quit()
           }
           runner.phase++
@@ -83,9 +115,16 @@ def main():
         import cli
         store.init_db()
         student = store.add_student('Runtime Test', 'female', 'flowers')
+        store.add_student('Second Test', 'male', 'cars')
         store.set_setting('student_id', student['id'])
         (base/'fixture.json').write_text(json.dumps(cli.snapshot()))
         prepare_ui_component(base, mock_helper=False)
+        dropdown = base/'AppDropdown.qml'
+        dropdown.write_text(dropdown.read_text().replace('  id: root',
+                            '  id: root\n  property alias testOptionList: optionList', 1))
+        search = base/'AppSearchableDropdown.qml'
+        search.write_text(search.read_text().replace('  id: root',
+                         '  id: root\n  property alias testOptionList: resultList', 1))
         script = SCRIPT
         if '--missing-helper' in sys.argv:
             component = base/'ReviewPanel.qml'
