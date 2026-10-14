@@ -27,6 +27,8 @@ from store import (
     list_sessions,
     list_students,
     next_variant,
+    progress_report,
+    student_progress_pointer,
     record_sheet,
     rename_student,
     set_setting,
@@ -90,6 +92,7 @@ def current_settings():
 
 
 def persist_selection(payload, settings):
+    previous_student = settings["student_id"]
     level = as_int(payload.get("level"), settings["level"])
     variant = max(1, as_int(payload.get("variant"), settings["variant"]))
     student_id = payload.get("student_id", settings["student_id"])
@@ -107,7 +110,14 @@ def persist_selection(payload, settings):
         set_setting("answers", "1" if as_bool(payload["answers"]) else "0")
     if "outdir" in payload:
         set_setting("outdir", payload["outdir"])
-    return current_settings()
+    updated = current_settings()
+    new_student = updated["student_id"]
+    if "student_id" in payload and new_student and new_student != previous_student:
+        pointer = student_progress_pointer(new_student)
+        set_setting("level", pointer["level"])
+        set_setting("variant", pointer["variant"])
+        updated = current_settings()
+    return updated
 
 
 def snapshot(settings=None, extra=None):
@@ -115,24 +125,40 @@ def snapshot(settings=None, extra=None):
     level_num = settings["level"] if settings["level"] in LEVEL_BY_NUM else 1
     variant = max(1, settings["variant"])
     level = LEVEL_BY_NUM[level_num]
-    pagesize = paper_size(settings["paper"])
-    preview = preview_sheet(level, variant, pagesize, settings["examples"], pages=1)
     student_id = settings["student_id"]
     students = list_students()
     if student_id and not any(s["id"] == student_id for s in students):
         student_id = None
+    last = latest_sheet(sheet_code(level_num, variant), student_id)
+    examples = bool(last["examples"]) if last is not None else settings["examples"]
+    pagesize = paper_size(settings["paper"])
+    preview = preview_sheet(level, variant, pagesize, examples, pages=1)
+    problem_count = (
+        int(last["problem_count"])
+        if last and last.get("problem_count")
+        else preview["problem_count"]
+    )
     sessions = list_sessions(student_id) if student_id else list_sessions()
+    sessions = sorted(
+        sessions,
+        key=lambda row: (int(row["level"]), int(row["variant"]), int(row["id"])),
+    )
     stats = level_stats(student_id) if student_id else []
-    last = latest_sheet(preview["code"], student_id)
+    report = progress_report(
+        student_id,
+        today=date.today(),
+        sessions=sessions if student_id else [],
+    )
     data = {
         "settings": settings,
         "sheet_code": preview["code"],
-        "problem_count": preview["problem_count"],
+        "problem_count": problem_count,
         "pages": preview["pages"],
         "levels": [{"num": lv.num, "title": lv.title} for lv in LEVELS],
         "students": students,
         "sessions": sessions[:80],
         "stats": stats,
+        "report": report,
         "last_sheet": last,
         "today": date.today().isoformat(),
     }
@@ -178,6 +204,11 @@ def cmd_generate(payload):
         result.answers_path,
         student_id,
     )
+    if student_id:
+        set_setting("variant", next_variant(student_id, settings["level"]))
+    else:
+        set_setting("variant", max(1, settings["variant"]) + 1)
+    settings = current_settings()
     return ok(snapshot(settings, {
         "generated": {
             "code": result.code,
@@ -249,6 +280,8 @@ def cmd_save_session(payload):
         )
     except ValueError as e:
         return fail(str(e))
+    set_setting("variant", next_variant(student_id, settings["level"]))
+    settings = current_settings()
     return ok(snapshot(settings, {"saved": row, "duration_label": format_duration(seconds)}))
 
 
