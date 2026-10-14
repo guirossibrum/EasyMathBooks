@@ -14,6 +14,7 @@ The widget has Worksheet and Progress views plus a gear. `currentPage` and `back
 - Students have names, Male/Female profiles, and three motifs per gender: flowers/unicorns/butterflies or sports/cars/airplanes. Legacy profiles remain unspecified until explicitly saved and use neutral stars. Never imply that an unsaved default is a saved choice.
 - Main reports cover the past seven days, including today. Progress offers historical Monday–Sunday weeks with saved results. Do not mix results outside the selected period or include future results.
 - Reports emphasize percentage correct and total correct exercises, with a results card for every practiced level. Timing defaults off and must be omitted from both the keepsake and hidden journal when off. Parents can enable it per student.
+- Each completed worksheet earns one vector star on its day in the report timeline, across all practiced levels. Days without practice stay quiet. A larger star accompanies the worksheet total; stars count completed sheets, not individual arithmetic problems.
 - Report HTML is self-contained and offline, with vector artwork, print styles, a printable journal, and TV mode. Hide the journal button in TV mode. Keep regular weekly reports printable on one Letter/A4 page; unusually many levels may require additional pages rather than clipping information.
 - `encouragement.py` contains 52 original positive messages. The report week's ISO week selects the message consistently; ISO week 53 wraps to the first message.
 - Optional themed worksheets reuse the report's vector motifs as stationery. Keep arithmetic legible and preserve the exact exercise plan and problem count. Plain worksheets remain the default.
@@ -58,6 +59,8 @@ Use the repository venv or a Python environment with `requirements.txt` installe
 .venv/bin/python tools/check_runtime.py --missing-helper
 .venv/bin/python tools/render_reports.py
 ```
+
+After generating fictional demo reports and widget previews, `tools/render_reports.py --showcase` refreshes the public images/PDFs in `docs/showcase/`. Keep that gallery current with report design changes.
 
 Use temporary `XDG_DATA_HOME` values in tests. Test period boundaries, multiple levels, omission of timing, reminder consent/time/threshold/deduplication, and reprinting the original problem count. Inject a fake sender in notification tests; never send real test notifications.
 

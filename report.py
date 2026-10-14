@@ -45,6 +45,14 @@ def report_range(period, today, week_start=None):
     return (today-timedelta(days=6 if period == "week" else 29) if period != "all" else None), today
 
 
+def achievement_star(extra_class=""):
+    """A small vector keeps printed rewards crisp and independent of emoji fonts."""
+    return (f'<svg class="achievement-star {extra_class}" viewBox="0 0 32 32" '
+            'aria-hidden="true" focusable="false"><path '
+            'd="M16 3L19.9 11.3L29 12.5L22.3 18.8L24 28L16 23.5L8 28L9.7 18.8L3 12.5L12.1 11.3Z"/>'
+            '</svg>')
+
+
 def render_report(student, sessions, period="week", today=None, paper="letter", week_start=None, show_timing=None):
     if paper not in ("letter", "a4"):
         raise ValueError("Paper must be letter or a4.")
@@ -66,9 +74,12 @@ def render_report(student, sessions, period="week", today=None, paper="letter", 
     count = len(rows)
     active_days = len({str(r["taken_at"])[:10] for r in rows})
     levels = stats.get("levels", [])
-    def metric(value, label, detail):
-        return f'<div class="metric"><strong>{value}</strong><span>{label}</span><small>{detail}</small></div>'
-    metrics = ''.join([metric(count, 'worksheets completed', f'{active_days} '+('day' if active_days == 1 else 'days')+' of practice'),
+    def metric(value, label, detail, reward=False):
+        headline = f'<strong>{value}</strong>'
+        if reward:
+            headline = f'<div class="metric-value">{achievement_star("total-star")}{headline}</div>'
+        return f'<div class="metric">{headline}<span>{label}</span><small>{detail}</small></div>'
+    metrics = ''.join([metric(count, 'worksheets completed', f'{active_days} '+('day' if active_days == 1 else 'days')+' of practice', reward=True),
                        metric(pct, 'answers correct', f'{problems:,} exercises recorded'),
                        metric(f'{correct:,}', 'correct exercises', f'Across {len(levels)} '+('level' if len(levels) == 1 else 'levels'))])
     calendar_start = start if start and (end-start).days == 6 else end-timedelta(days=6)
@@ -81,7 +92,12 @@ def render_report(student, sessions, period="week", today=None, paper="letter", 
         day = calendar_start + timedelta(days=offset)
         n = counts.get(day.isoformat(), 0)
         cls = ' practiced' if n else ''
-        activity += f'<div class="day{cls}" title="{day:%Y-%m-%d}: {n} sheets"><span>{day:%a}</span><b>{n or "·"}</b><small>{day:%b} {day.day}</small></div>'
+        density = ' many' if n > 6 else ''
+        rewards = achievement_star() * n if n else '<i class="rest-mark" aria-hidden="true"></i>'
+        description = f'{day:%B} {day.day}: {n} '+('worksheet' if n == 1 else 'worksheets')+' completed'
+        activity += (f'<div class="day{cls}" data-date="{day:%Y-%m-%d}" title="{description}">'
+                     f'<span>{day:%a}</span><div class="day-stars{density}" role="img" aria-label="{description}">'
+                     f'{rewards}</div><small>{day:%b} {day.day}</small></div>')
     from generate import LEVEL_BY_NUM
     level_cards = ''
     detail_levels = ''
@@ -113,7 +129,7 @@ def render_report(student, sessions, period="week", today=None, paper="letter", 
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{name} · My math journey</title><style>:root{{--accent:{accent};--soft:{soft};--cream:{cream};}}@page{{size:{'A4' if paper == 'a4' else 'Letter'} portrait;}}{css}</style></head>
 <body><nav class="toolbar" aria-label="Report actions"><span>Easy Math Books · Weekly family keepsake</span><div><button onclick="window.print()">Print / save PDF</button><button id="tv" onclick="toggleTV()">TV view</button><button id="journal" onclick="toggleJournal()" aria-expanded="false">Show practice journal</button></div></nav>
 <main><article class="keepsake"><div class="topline"><span>EASY MATH BOOKS</span><span>{span}</span></div><header><div><p class="eyebrow">{title}</p><h1>{name}’s<br><em>math journey.</em></h1><p class="intro">A celebration of practice, patience,<br>and all the little steps that add up.</p></div>{motif_svg(motif)}</header>
-<div class="metrics">{metrics}</div><section class="activity"><div class="section-title"><h2>A little practice, day by day.</h2><span>{'This week' if week_start else 'Past 7 days'}</span></div><div class="days">{activity}</div><p class="subtle">Every colored day is a day you showed up. That’s worth celebrating.</p></section>{progress_html}
+<div class="metrics">{metrics}</div><section class="activity"><div class="section-title"><h2>A little practice, day by day.</h2><span>{'This week' if week_start else 'Past 7 days'}</span></div><div class="days">{activity}</div><p class="subtle">One star for every worksheet completed. Look at all those little steps.</p></section>{progress_html}
 <footer><div class="star">✦</div><div><p>{encouragement}</p><span>We’re proud of the effort you put in, {name}.</span></div><div class="signature">With love,<br><span>________________</span></div></footer><div class="bottomline"><span>A little keepsake. A big reason to be proud.</span><span>Made {today:%B %d, %Y}</span></div></article>{details}</main>
 <script>function toggleJournal(){{let open=document.body.classList.toggle('journal-open');document.getElementById('journal').textContent=open?'Hide practice journal':'Show practice journal';document.getElementById('journal').setAttribute('aria-expanded',String(open))}}function toggleTV(){{let active=document.body.classList.toggle('tv');document.getElementById('tv').textContent=active?'Exit TV view':'TV view';if(active&&document.documentElement.requestFullscreen)document.documentElement.requestFullscreen().catch(()=>{{}});else if(!active&&document.fullscreenElement)document.exitFullscreen().catch(()=>{{}})}}if(new URLSearchParams(location.search).has('tv'))document.body.classList.add('tv');document.addEventListener('fullscreenchange',()=>{{if(!document.fullscreenElement){{document.body.classList.remove('tv');document.getElementById('tv').textContent='TV view'}}}})</script></body></html>'''
 

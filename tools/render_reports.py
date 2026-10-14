@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Capture local demo reports with Chromium, including PDFs and a TV preview."""
 from pathlib import Path
+import argparse
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
@@ -11,6 +12,10 @@ MOTIFS = ('flowers', 'unicorns', 'butterflies', 'sports', 'cars', 'airplanes')
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--showcase', action='store_true',
+                        help='Refresh the public showcase assets from the fictional previews.')
+    args = parser.parse_args()
     chromium = shutil.which('chromium')
     if not chromium:
         raise SystemExit('Chromium is required to capture the demo reports.')
@@ -48,6 +53,16 @@ def main():
         if result.returncode or not tv.exists():
             raise RuntimeError(result.stderr)
         print('PASS TV preview at 1920 × 1080')
+    if args.showcase:
+        showcase = ROOT / 'docs/showcase'
+        assets = list(showcase.iterdir())
+        for asset in assets:
+            source = OUT / asset.name
+            if not source.is_file():
+                raise RuntimeError(f'Generate the latest demo/widget preview first: {source}')
+        for asset in assets:
+            shutil.copy2(OUT / asset.name, asset)
+        print(f'PASS refreshed {len(assets)} public showcase assets from fictional data')
 
 
 if __name__ == '__main__':

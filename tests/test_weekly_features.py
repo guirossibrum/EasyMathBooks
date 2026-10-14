@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 import unittest
 import shutil
 import subprocess
+import re
 
 import cli
 import store
@@ -80,6 +81,27 @@ class WeeklyFeaturesTest(unittest.TestCase):
         self.assertFalse(result['ok'])
         with self.assertRaises(ValueError):
             render_report(self.student, [], week_start='2026-10-06')
+
+    def test_stars_reward_each_completed_worksheet_on_its_day(self):
+        self.add('2026-10-12', level=1, variant=1)
+        self.add('2026-10-12', level=2, variant=1)
+        self.add('2026-10-13', level=2, variant=2)
+        self.add('2026-10-06', variant=3)  # Outside this week.
+        self.add('2026-10-14', variant=4)  # Future practice is excluded.
+        html = render_report(self.student, store.list_sessions(self.sid), today=date(2026, 10, 13))
+        days = dict(re.findall(r'data-date="([^"]+)"(.*?)</small></div>', html))
+        self.assertEqual(len(days), 7)
+        self.assertEqual(days['2026-10-12'].count('class="achievement-star '), 2)
+        self.assertEqual(days['2026-10-13'].count('class="achievement-star '), 1)
+        self.assertEqual(days['2026-10-11'].count('class="achievement-star '), 0)
+        self.assertEqual(sum(day.count('class="achievement-star ') for day in days.values()), 3)
+        self.assertIn('aria-label="October 12: 2 worksheets completed"', html)
+        self.assertIn('total-star', html)
+        self.assertIn('<strong>3</strong></div><span>worksheets completed</span>', html)
+        self.assertIn('<strong>90</strong>', html)  # Stars count sheets, not arithmetic problems.
+        empty = render_report(self.student, [], today=date(2026, 10, 13))
+        self.assertNotIn('class="day practiced"', empty)
+        self.assertIn('<strong>0</strong></div><span>worksheets completed</span>', empty)
 
     def test_reminders_default_off_and_require_consent(self):
         self.assertFalse(self.student['weekly_reminder'])

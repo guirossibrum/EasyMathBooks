@@ -20,6 +20,7 @@ put on the TV. Everything stays on your computer.
 - **No scrolling inside the widget.** Every child page has the same left-arrow Back control, returning to the page you came from. Escape also goes Back; at the root, it closes the widget.
 - **Reprint unfinished sheets.** Replace a lost worksheet with the same problems and original print settings, or record its result.
 - **Weekly keepsakes.** Past seven days by default; select any earlier week with results from Progress.
+- **A star for every finished worksheet.** The weekly timeline celebrates each completed sheet, with a larger star beside the total.
 - **Every practiced level counts.** Each level has its own results card, alongside total correct exercises and overall accuracy.
 - **Timing is optional.** Off by default; parents can choose a report that celebrates correct answers without showing speed comparisons.
 - **52 positive messages**, one for each week of the year.
