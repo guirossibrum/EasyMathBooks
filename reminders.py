@@ -1,6 +1,5 @@
 """Opt-in local Omarchy notifications. No background services are installed."""
 from datetime import datetime, timedelta
-import subprocess
 from store import list_students, list_sessions, session
 
 
@@ -28,9 +27,16 @@ def due_reminders(student, sessions, now):
 
 
 def send_notification(title, body):
-    subprocess.run(['omarchy-notification-send', '--app-name', 'Easy Math Books',
-                    '-g', '󰃬', title, body], check=True, timeout=8,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Use the same service and hints as omarchy-notification-send, in-process:
+    # invoking the CLI would expose the child's name in its body argument.
+    from gi.repository import Gio, GLib
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    parameters = GLib.Variant('(susssasa{sv}i)', (
+        'Easy Math Books', 0, '', title, body, [],
+        {'urgency': GLib.Variant('y', 0), 'omarchy-glyph': GLib.Variant('s', '󰃬')}, -1))
+    bus.call_sync('org.freedesktop.Notifications', '/org/freedesktop/Notifications',
+                  'org.freedesktop.Notifications', 'Notify', parameters,
+                  GLib.VariantType.new('(u)'), Gio.DBusCallFlags.NONE, 8000, None)
 
 
 def check_reminders(now=None, sender=None):

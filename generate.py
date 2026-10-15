@@ -4,11 +4,11 @@
 Generates printable PDF worksheets (plus matching answer keys) for 40 levels,
 from single-digit addition up to square roots and quadratic equations.
 
-    python generate.py --list
-    python generate.py --sheet 1-1
-    python generate.py --level 5
-    python generate.py --level 1-10 --sheets 10
-    python generate.py --level all --paper a4
+    /usr/bin/python3 generate.py --list
+    /usr/bin/python3 generate.py --sheet 1-1
+    /usr/bin/python3 generate.py --level 5
+    /usr/bin/python3 generate.py --level 1-10 --sheets 10
+    /usr/bin/python3 generate.py --level all --paper a4
 """
 
 import argparse
@@ -21,9 +21,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Callable, Optional
 
-from reportlab.lib.pagesizes import A4, letter
-from reportlab.pdfbase.pdfmetrics import stringWidth
-from reportlab.pdfgen import canvas
+from pdf_canvas import A4, letter, stringWidth, Canvas
 
 FONT = "Helvetica"
 BOLD = "Helvetica-Bold"
@@ -59,7 +57,7 @@ def st(a, op, b, ans):
 
 
 # --------------------------------------------------------------------------
-# Mini markup renderer (works with built-in PDF fonts, no font files needed)
+# Mini markup renderer (system fonts via Pango; no bundled font files needed)
 #   ^{...}       superscript
 #   \sqrt{...}   square root        \cbrt{...}   cube root
 #   \frac{n}{d}  stacked fraction
@@ -1076,7 +1074,7 @@ def generate_one(level, variant, outdir, pagesize, answers=True, examples=True,
         base += f"_motif-{motif}"
     path = outdir / f"{base}.pdf"
     W, H_ = pagesize
-    c = canvas.Canvas(str(path), pagesize=pagesize, invariant=1)
+    c = Canvas(str(path), pagesize=pagesize, invariant=True)
     c.setTitle(f"EasyMathBooks Sheet {code}: {level.title}")
     draw_sheet(c, W, H_, level, code, chunks, example,
                hints=examples, student_name=student_name, motif=motif)
@@ -1084,7 +1082,7 @@ def generate_one(level, variant, outdir, pagesize, answers=True, examples=True,
     apath = None
     if answers:
         apath = outdir / f"{base}_answers.pdf"
-        c = canvas.Canvas(str(apath), pagesize=pagesize, invariant=1)
+        c = Canvas(str(apath), pagesize=pagesize, invariant=True)
         c.setTitle(f"EasyMathBooks Sheet {code} answers")
         draw_answers(c, W, H_, level, code, problems)
         c.save()
@@ -1169,9 +1167,9 @@ def main(argv=None):
             print(f"{lv.num:>3}  {lv.title}")
         if not args.level and not args.sheet:
             print("\nExamples:")
-            print("  python generate.py --sheet 1-1")
-            print("  python generate.py --level 1 --sheets 5      # sheets 1-1 through 1-5")
-            print("  python generate.py --level 1-10 --sheets 2")
+            print("  /usr/bin/python3 generate.py --sheet 1-1")
+            print("  /usr/bin/python3 generate.py --level 1 --sheets 5      # sheets 1-1 through 1-5")
+            print("  /usr/bin/python3 generate.py --level 1-10 --sheets 2")
         return 0
 
     if args.sheets < 1:

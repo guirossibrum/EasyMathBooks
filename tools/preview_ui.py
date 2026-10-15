@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render actual UI components with isolated demo data; check workflow transitions.
 
-Run with the project's venv Python. Requires Quickshell and the installed Omarchy
+Run with Omarchy's system Python. Requires Quickshell and the installed Omarchy
 shell UI kit. Replaces only the desktop window host and external side effects.
 Does not load the live plugin, open PDFs, or read/write real student records.
 """
@@ -117,7 +117,7 @@ function verifyFlow(data) {
 '''
 
 
-def prepare_ui_component(base, mock_helper=True):
+def prepare_ui_component(base, mock_helper=True, mock_open=True):
     for name in ("Commons", "Ui"):
         (base / name).symlink_to(Path("/usr/share/omarchy/shell") / name)
     for name in ("AppDropdown.qml", "AppSearchableDropdown.qml"):
@@ -145,7 +145,11 @@ def prepare_ui_component(base, mock_helper=True):
     ''' + source[b:]
         source = source.replace('  function refresh() { run("snapshot", hydrated ? selectionPayload() : ({})) }',
                                 '  function refresh() {}')
-    source = source.replace('    Quickshell.execDetached(["xdg-open", path])', '')
+    if mock_open:
+        # Preview tests must not open a real browser or PDF viewer.
+        start = source.index('  function openPath(path) {')
+        end = source.index('  function applySnap(', start)
+        source = source[:start] + '  function openPath(path) {}\n\n' + source[end:]
     source = source.replace('  Component.onCompleted: refresh()', '')
     source = source.replace('  property bool hydrated: false', '  readonly property real demoContentHeight: panelContent.implicitHeight\n  property bool hydrated: false')
     a = source.index('  KeyboardPanel {')

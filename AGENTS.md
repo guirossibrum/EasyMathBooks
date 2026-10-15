@@ -20,7 +20,7 @@ The widget has Worksheet and Progress views plus a gear. `currentPage` and `back
 - Optional themed worksheets reuse the report's vector motifs as stationery. Keep arithmetic legible and preserve the exact exercise plan and problem count. Plain worksheets remain the default.
 - Both reminder types default off, independently, for every parent/student. First enable asks permission in the app. Do not infer consent from a conversation or enable reminders during installation.
 - Parents type an accepted number of days without recorded practice (1–365) and a local notification time (`HH:MM`, 24-hour clock). These are stored per student. Missed-practice reminders occur at most once per day after the threshold and chosen time. Weekly report reminders occur once per new week, after the chosen time, if the preceding week has results.
-- Reminders use Omarchy's notification sender. A one-minute timer in the loaded widget checks due reminders; no systemd service or external scheduler is installed. Persist delivery keys to avoid repeats after reloads or across monitors, and release a key after delivery failure so it can retry.
+- Reminders use Omarchy's notification service and glyph hints, through in-process Gio D-Bus calls so child names never enter a notification command's argv. A one-minute timer in the loaded widget checks due reminders; no systemd service or external scheduler is installed. Persist delivery keys to avoid repeats after reloads or across monitors, and release a key after delivery failure so it can retry.
 
 ## Architecture
 
@@ -31,11 +31,14 @@ The widget has Worksheet and Progress views plus a gear. `currentPage` and `back
 | `cli.py` | JSON commands and snapshots; integrates generation, profiles, reports and reminders |
 | `store.py` | SQLite records, idempotent migrations, preferences, pending sheets, week index and statistics |
 | `generate.py` | Deterministic exercises and PDF layout |
-| `worksheet_style.py` | Optional vector motif stationery using ReportLab's SVG path support |
+| `pdf_canvas.py` | Vector PDFs and Unicode text through system Cairo/Pango |
+| `worksheet_style.py` | Optional vector motif stationery using system librsvg |
 | `report.py`, `report.css` | Offline report documents, selected periods, results cards and print/TV styles |
 | `encouragement.py` | Weekly message catalog |
 | `reminders.py` | Pure due calculations, deduplication and local notification delivery |
-| `bin/easymath-cli` | Python/venv selection and dependency bootstrap |
+| `bin/easymath-cli` | System Python launcher with private umask and disabled bytecode |
+
+Widget-to-helper requests use JSON on stdin, followed by EOF; process arguments contain only the command verb. The helper rejects positional JSON payloads. Reset stdin for each queued request, clear buffered payloads after start/failure, and verify Unicode and large notes with the real QML Process. All document opens use `open-document` on the same stdin protocol; it gives the desktop opener a private opaque copy so legacy worksheet filenames cannot expose names through argv. Preview and runtime checks must substitute a fake opener or disable opening.
 
 The base Omarchy `Panel` exposes writable `settings` for shell injection. Do not override it with a read-only property. Snapshot settings live at `snap.settings`. The installed plugin is recursively watched: the CLI must use `-B` and `PYTHONDONTWRITEBYTECODE=1` so Python cache writes never reload the widget. Keep reports, databases, and other generated files outside the installed plugin. Publish reports atomically with content-versioned filenames so open documents stay unchanged. Changes to plugin files may leave cached QML components alive; verify the visible widget after reloading. If needed, use the Omarchy skill and restart the shell rather than claiming a rescan alone proved the new UI is loaded.
 
@@ -45,19 +48,21 @@ Dropdowns emit `changed(value)` and let the parent update its state. Never assig
 
 Real data lives in `${XDG_DATA_HOME:-~/.local/share}/easymathbooks/`, including `easymath.db`, generated worksheets and reports. Keep migrations additive and compatible with older code. Back up the database before testing a new installed version. Normal code rollback must preserve practice recorded during a trial.
 
+Enforce owner-only permissions independently of umask: app data directory `0700`, database and existing `-journal`/`-wal`/`-shm` files `0600`. Secure existing installations before reading records. Legacy migration retains the source, secures its permissions, and publishes a private consistent SQLite backup without replacing a concurrently created destination. The CLI launcher uses `umask 077` for generated files. Never follow database/directory symlinks when tightening permissions.
+
 Never commit actual student names, records, generated family reports, database backups, or live desktop screenshots. Public design examples in `docs/showcase/` use only the fictional database under `output/ui-review/demo/`. Keep `docs/ui-review/` and `docs/audit/` as local, Git-ignored review material; do not link to them from public documentation. `output/` and database files are also Git-ignored.
 
 ## Validation
 
-Use the repository venv or a Python environment with `requirements.txt` installed:
+Use Omarchy's system Python (`/usr/bin/python3`), which exposes its packaged Cairo/GTK bindings. The plugin has no PyPI dependencies and must never install packages or create a runtime venv:
 
 ```sh
-.venv/bin/python -m unittest discover -s tests
-.venv/bin/python tools/create_demo.py
-.venv/bin/python tools/preview_ui.py
-.venv/bin/python tools/check_runtime.py
-.venv/bin/python tools/check_runtime.py --missing-helper
-.venv/bin/python tools/render_reports.py
+/usr/bin/python3 -m unittest discover -s tests
+/usr/bin/python3 tools/create_demo.py
+/usr/bin/python3 tools/preview_ui.py
+/usr/bin/python3 tools/check_runtime.py
+/usr/bin/python3 tools/check_runtime.py --missing-helper
+/usr/bin/python3 tools/render_reports.py
 ```
 
 After generating fictional demo reports and widget previews, `tools/render_reports.py --showcase` refreshes the public images/PDFs in `docs/showcase/`. Keep that gallery current with report design changes.

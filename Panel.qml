@@ -308,11 +308,14 @@ Panel {
     }
     lastError = ""
     busy = true
-    helper.command = [root.cli, cmd, JSON.stringify(payload || ({}))]
+    helper.command = [root.cli, cmd]
+    helper.requestJson = JSON.stringify(payload || ({}))
+    helper.stdinEnabled = true
     helper.running = true
   }
 
   function finishHelper(exitCode, output) {
+    helper.requestJson = ""
     busy = false
     try {
       var data = JSON.parse(String(output || "").trim())
@@ -341,7 +344,11 @@ Panel {
       lastError = "Create the worksheet first."
       return
     }
-    Quickshell.execDetached(["xdg-open", path])
+    if (documentOpener.running) return
+    documentOpener.awaitingReply = true
+    documentOpener.requestJson = JSON.stringify({path: path})
+    documentOpener.stdinEnabled = true
+    documentOpener.running = true
   }
 
   function applySnap(data) {
@@ -519,12 +526,50 @@ Panel {
 
   Process {
     id: helper
+    property string requestJson: ""
+    onStarted: {
+      write(requestJson + "\n")
+      requestJson = ""
+      // Deliver EOF after the buffered JSON so the helper can read the full request.
+      stdinEnabled = false
+    }
     stdout: StdioCollector { id: helperOutput; waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode, exitStatus) { root.finishHelper(exitCode, helperOutput.text) }
     onRunningChanged: if (!running) Qt.callLater(function() {
       if (!helper.running && root.busy) root.finishHelper(-1, helperOutput.text)
     })
+  }
+
+  Process {
+    id: documentOpener
+    command: [root.cli, "open-document"]
+    property string requestJson: ""
+    property bool awaitingReply: false
+    stdout: StdioCollector { id: documentOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onStarted: {
+      write(requestJson + "\n")
+      requestJson = ""
+      stdinEnabled = false
+    }
+    onExited: function(exitCode, exitStatus) {
+      awaitingReply = false
+      requestJson = ""
+      try {
+        var reply = JSON.parse(documentOutput.text)
+        if (exitCode !== 0 || !reply.ok) root.lastError = String(reply.error || "Could not open the document.")
+      } catch (e) { root.lastError = "Could not open the document." }
+    }
+    onRunningChanged: if (!running) {
+      requestJson = ""
+      Qt.callLater(function() {
+        if (!documentOpener.running && documentOpener.awaitingReply) {
+          documentOpener.awaitingReply = false
+          root.lastError = "Could not open the document."
+        }
+      })
+    }
   }
 
   IpcHandler {

@@ -9,6 +9,7 @@ import unittest
 import shutil
 import subprocess
 import re
+from unittest.mock import patch
 
 import cli
 import store
@@ -41,8 +42,8 @@ class WeeklyFeaturesTest(unittest.TestCase):
 
     def command(self, name, payload):
         output = StringIO()
-        with redirect_stdout(output):
-            rc = cli.main([name, json.dumps(payload)])
+        with redirect_stdout(output), patch('sys.stdin', StringIO(json.dumps(payload))):
+            rc = cli.main([name])
         return rc, json.loads(output.getvalue())
 
     def test_weekly_results_across_levels_with_timing_hidden(self):
@@ -187,14 +188,13 @@ class WeeklyFeaturesTest(unittest.TestCase):
     def test_installed_helper_never_writes_inside_watched_plugin(self):
         root = Path(__file__).resolve().parents[1]
         plugin = Path(self.tmp.name)/'plugin'
-        names = ['cli.py', 'store.py', 'generate.py', 'report.py', 'report.css',
+        names = ['cli.py', 'store.py', 'generate.py', 'pdf_canvas.py', 'report.py', 'report.css',
                  'encouragement.py', 'reminders.py', 'worksheet_style.py',
                  'requirements.txt', 'bin/easymath-cli']
         for name in names:
             target = plugin/name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(root/name, target)
-        (plugin/'.venv').symlink_to(root/'.venv')
         def fingerprints():
             return {name: ((plugin/name).stat().st_mtime_ns, (plugin/name).read_bytes()) for name in names}
         before = fingerprints()
@@ -202,12 +202,13 @@ class WeeklyFeaturesTest(unittest.TestCase):
                     ('update-student', {'student_id': self.sid, 'name': 'Lily', 'gender': 'female', 'motif': 'unicorns'}),
                     ('export-report', {'student_id': self.sid}), ('check-reminders', {})]
         for cmd, payload in commands:
-            result = subprocess.run([str(plugin/'bin/easymath-cli'), cmd, json.dumps(payload)],
+            result = subprocess.run([str(plugin/'bin/easymath-cli'), cmd], input=json.dumps(payload),
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr+result.stdout)
             self.assertTrue(json.loads(result.stdout)['ok'])
         self.assertEqual(fingerprints(), before)
         self.assertEqual(list(plugin.glob('__pycache__')), [])
+        self.assertFalse((store.data_dir()/'venv').exists())
 
 
     def test_all_motif_worksheets_preserve_the_problem_plan(self):

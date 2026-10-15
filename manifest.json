@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "grbrum.easymath",
   "name": "Easy Math Books",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Guilherme Rossi Brum",
   "license": "MIT",
   "description": "Create deterministic Kumon-style math worksheets, time practice, and track student progress.",

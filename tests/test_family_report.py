@@ -7,6 +7,7 @@ import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 from datetime import date
+from unittest.mock import patch
 
 import store
 from report import render_report, THEMES
@@ -92,8 +93,8 @@ class FamilyReportTest(unittest.TestCase):
         import cli
         student = store.add_student('Oliver', 'male', 'airplanes')
         output = StringIO()
-        with redirect_stdout(output):
-            rc = cli.main(['export-report', json.dumps({'student_id': student['id'], 'period': 'month'})])
+        with redirect_stdout(output), patch('sys.stdin', StringIO(json.dumps({'student_id': student['id'], 'period': 'month'}))):
+            rc = cli.main(['export-report'])
         self.assertEqual(rc, 0)
         response = json.loads(output.getvalue())
         path = Path(response['report_document']['path'])

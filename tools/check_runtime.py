@@ -17,7 +17,7 @@ SCRIPT = r'''
       onTriggered: {
         runner.ticks++
         if (runner.ticks > 300) { console.error("FAIL", "Helper did not settle", runner.phase); Qt.quit(); return }
-        if (review.busy || review.commandQueue.length) return
+        if (review.busy || review.commandQueue.length || review.testDocumentOpener.running) return
         try {
           if (runner.phase === 0) {
             review.applySnap(JSON.parse(fixture.text()))
@@ -91,13 +91,24 @@ SCRIPT = r'''
             selector.selectCurrent()
             runner.check(dropdown.currentLabel() === "Runtime Test", "Remaining student must show its name")
             review.run("delete-student", {student_id: 1})
-          } else {
+          } else if (runner.phase === 9) {
             var dropdown = runner.findControl(review, "AppDropdown_")
             runner.check(review.students.length === 0 && review.studentId === "" && dropdown.value === "",
               "Deleting the last student must leave an empty selection: " + JSON.stringify([review.students.length, review.studentId, dropdown.value]))
             runner.check(dropdown.currentLabel() === review.studentOptions[0].label,
               "Empty student list must show the empty label")
-            console.log("PASS REAL HELPER: queued saves, invalid input, motif edits, report regeneration, Back context, dropdown overlays, and student deletion")
+            review.run("add-student", {name: 'Private "☀" Test\nChild', gender: "female", motif: "flowers"})
+          } else if (runner.phase === 10) {
+            runner.check(review.studentName === 'Private "☀" Test\nChild', "Names must round-trip over stdin")
+            review.run("save-session", {student_id: Number(review.studentId), level: 1, variant: 1,
+              duration_seconds: 123, score: 24, score_max: 25, notes: 'Private "☀" note\n'.repeat(8192)})
+          } else {
+            runner.check(review.lastError === "" && review.sessions.length === 1,
+              "Large stdin request must finish and preserve the saved session")
+            runner.check(review.sessions[0].notes === 'Private "☀" note\n'.repeat(8192).trim()
+              && review.sessions[0].duration_seconds === 123 && review.sessions[0].score === 24,
+              "Notes, timing and scores must round-trip over stdin without truncation")
+            console.log("PASS REAL HELPER: stdin payloads, queued saves, invalid input, motif edits, report regeneration, Back context, dropdown overlays, and student deletion")
             Qt.quit()
           }
           runner.phase++
@@ -118,7 +129,21 @@ def main():
         store.add_student('Second Test', 'male', 'cars')
         store.set_setting('student_id', student['id'])
         (base/'fixture.json').write_text(json.dumps(cli.snapshot()))
-        prepare_ui_component(base, mock_helper=False)
+        prepare_ui_component(base, mock_helper=False, mock_open=False)
+        component = base/'ReviewPanel.qml'
+        component.write_text(component.read_text().replace('  id: root',
+                             '  id: root\n  property alias testDocumentOpener: documentOpener', 1))
+        commands = base/'bin'
+        commands.mkdir()
+        opened_log = base/'opened.jsonl'
+        opener = commands/'xdg-open'
+        opener.write_text(f'''#!{sys.executable}
+import json, sys
+from pathlib import Path
+with Path({str(opened_log)!r}).open('a') as output:
+    output.write(json.dumps(sys.argv[1:])+'\\n')
+''')
+        opener.chmod(0o700)
         dropdown = base/'AppDropdown.qml'
         dropdown.write_text(dropdown.read_text().replace('  id: root',
                             '  id: root\n  property alias testOptionList: optionList', 1))
@@ -126,6 +151,22 @@ def main():
         search.write_text(search.read_text().replace('  id: root',
                          '  id: root\n  property alias testOptionList: resultList', 1))
         script = SCRIPT
+        if '--missing-helper' not in sys.argv:
+            spy = base/'helper-spy'
+            argv_log = base/'argv.jsonl'
+            spy.write_text(f'''#!{sys.executable}
+import json, subprocess, sys
+from pathlib import Path
+with Path({str(argv_log)!r}).open('a') as output:
+    output.write(json.dumps({{'argv': sys.argv[1:], 'proc': Path('/proc/self/cmdline').read_bytes().decode().split('\\0')}})+'\\n')
+if len(sys.argv) != 2:
+    raise SystemExit('FAIL: Only the command verb may be passed as an argument')
+request = sys.stdin.read()
+raise SystemExit(subprocess.run([{str(ROOT/'bin/easymath-cli')!r}, sys.argv[1]], input=request, text=True).returncode)
+''')
+            spy.chmod(0o700)
+            component = base/'ReviewPanel.qml'
+            component.write_text(component.read_text().replace(str(ROOT/'bin/easymath-cli'), str(spy)))
         if '--missing-helper' in sys.argv:
             component = base/'ReviewPanel.qml'
             component.write_text(component.read_text().replace(str(ROOT/'bin/easymath-cli'), str(base/'missing-helper')))
@@ -171,12 +212,28 @@ ShellRoot {
         (base/'runtime').mkdir(mode=0o700)
         env = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_QPA_PLATFORMTHEME='basic',
                    QT_QUICK_BACKEND='software', XDG_RUNTIME_DIR=str(base/'runtime'), XDG_CACHE_HOME=str(base/'cache'))
+        env['PATH'] = str(commands)+os.pathsep+env['PATH']
         env.pop('DISPLAY', None); env.pop('WAYLAND_DISPLAY', None)
         result = subprocess.run(['quickshell', '-p', str(base), '--no-color'], env=env,
                                 capture_output=True, text=True, timeout=25)
         log = result.stdout+result.stderr
         if result.returncode or 'FAIL' in log or 'Binding loop' in log or 'PASS REAL HELPER' not in log:
             raise RuntimeError(log)
+        if '--missing-helper' not in sys.argv:
+            requests = [json.loads(line) for line in argv_log.read_text().splitlines()]
+            assert len(requests) >= 15, 'Expected real helper requests to be inspected'
+            for request in requests:
+                assert len(request['argv']) == 1 and request['argv'][0] in cli.COMMANDS, request
+                assert all('Private' not in arg and 'Runtime Test' not in arg and '{' not in arg
+                           for arg in request['proc']), 'Private payload found in procfs arguments'
+            print(f'PASS PRIVACY: inspected {len(requests)} live helper command lines; no JSON or child records in argv')
+            opened = [json.loads(line) for line in opened_log.read_text().splitlines()]
+            assert len(opened) == 2, 'Both motif reports must open through the real QML document process'
+            for argv in opened:
+                assert len(argv) == 1 and Path(argv[0]).parent == store.data_dir()/'viewing'
+                assert 'Runtime Test' not in argv[0] and 'Private' not in argv[0]
+                assert Path(argv[0]).read_text().startswith('<!doctype html>')
+            print('PASS PRIVACY: both reports opened through opaque paths using a fake desktop opener')
         print(next(line for line in log.splitlines() if 'PASS REAL HELPER' in line))
 
 

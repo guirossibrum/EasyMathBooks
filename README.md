@@ -87,8 +87,9 @@ minute; no background service or external account is installed.
 omarchy plugin add https://github.com/guirossibrum/EasyMathBooks.git --enable
 ```
 
-Requires Omarchy, Python 3, and ReportLab. The first worksheet automatically
-installs ReportLab into `~/.local/share/easymathbooks/venv`. License: MIT.
+Uses Omarchy's system Python and its existing Cairo, Pango, and SVG libraries
+to produce sharp, printable PDFs. No package downloads or virtual environment
+are needed. License: MIT.
 
 The calculator icon opens the widget. **Worksheet** is for preparation and
 practice; **Progress** is for results and reports. The **gear** opens a small settings hub for print options, reminder
@@ -101,6 +102,11 @@ Right-clicking the calculator creates the current worksheet.
 Names, practice results, notification preferences, worksheets, and reports are
 stored under `~/.local/share/easymathbooks/` (or your `XDG_DATA_HOME`). They are
 never uploaded to this repository. Notifications go only to your local desktop.
+The app's data directory is owner-only (`0700`), and its database and SQLite
+sidecar files are private (`0600`). Existing installations receive these
+permissions automatically while keeping their records and preferences.
+The widget sends requests to its helper through stdin. Documents open through
+private copies with opaque filenames, keeping child names out of process arguments.
 All screenshots and downloadable examples in this README use **fictional students**.
 
 Removing the widget preserves your records:
@@ -114,9 +120,9 @@ omarchy plugin remove grbrum.easymath
 You can also create worksheets directly with Python:
 
 ```sh
-python generate.py --list
-python generate.py --sheet 1-502
-python generate.py --level 1 --sheets 5
+/usr/bin/python3 generate.py --list
+/usr/bin/python3 generate.py --sheet 1-502
+/usr/bin/python3 generate.py --level 1 --sheets 5
 ```
 
 ## How a page is prepared

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -37,12 +38,13 @@ from store import (
     set_student_options,
     pending_sheets,
     report_weeks,
+    private_document_copy,
 )
 
 
 def read_payload(argv):
     if argv:
-        return json.loads(argv[0])
+        raise ValueError("Send JSON requests through stdin, not command-line arguments.")
     raw = sys.stdin.read()
     if not raw.strip():
         return {}
@@ -292,6 +294,16 @@ def cmd_export_report(payload):
     return ok(snapshot(extra={"report_document": {"path": str(path)}}))
 
 
+def cmd_open_document(payload):
+    # Older worksheet filenames can contain names. The desktop opener must
+    # only receive an opaque path, even when viewing those existing files.
+    path = private_document_copy(str(payload.get("path") or ""))
+    subprocess.Popen(["xdg-open", str(path)], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    return ok({"document_opened": True})
+
+
 def cmd_rename_student(payload):
     student_id = as_int(payload.get("student_id"))
     name = str(payload.get("name") or "").strip()
@@ -374,6 +386,7 @@ COMMANDS = {
     "check-reminders": cmd_check_reminders,
     "reprint-pending": cmd_reprint_pending,
     "export-report": cmd_export_report,
+    "open-document": cmd_open_document,
     "delete-student": cmd_delete_student,
     "save-session": cmd_save_session,
     "delete-session": cmd_delete_session,

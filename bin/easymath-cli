@@ -1,24 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 # Omarchy watches this directory recursively: bytecode writes can reload the widget.
 export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-DATA="${XDG_DATA_HOME:-$HOME/.local/share}/easymathbooks"
-VENV="$DATA/venv"
-
-if [[ -x "$VENV/bin/python" ]]; then
-  PY="$VENV/bin/python"
-elif [[ -x "$ROOT/.venv/bin/python" ]]; then
-  PY="$ROOT/.venv/bin/python"
-else
-  PY="$(command -v python3)"
-fi
-
-if ! "$PY" -c "import reportlab" >/dev/null 2>&1; then
-  mkdir -p "$DATA"
-  python3 -m venv "$VENV"
-  "$VENV/bin/pip" install -q -r "$ROOT/requirements.txt"
-  PY="$VENV/bin/python"
-fi
-
-exec "$PY" -B "$ROOT/cli.py" "$@"
+# Omarchy's system Python exposes its packaged Cairo/Pango/GTK bindings.
+# No virtual environment, downloads, or package-manager commands are needed.
+exec /usr/bin/python3 -B "$ROOT/cli.py" "$@"

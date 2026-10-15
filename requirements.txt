@@ -1,1 +1,2 @@
-reportlab
+# No PyPI dependencies. Use Omarchy's system Python and desktop libraries.
+# System runtime: python-gobject, python-cairo, pango, librsvg.

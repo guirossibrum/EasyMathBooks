@@ -7,8 +7,11 @@ It is never part of the git repo, so student names stay off GitHub.
 from __future__ import annotations
 
 import os
-import shutil
 import sqlite3
+import stat
+import tempfile
+import shutil
+import secrets
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -31,22 +34,108 @@ def default_output_dir():
     return data_dir() / "output"
 
 
+def _private_file(path, create=False):
+    """Secure the actual file, never a symlink, before SQLite opens it."""
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    if create:
+        flags |= os.O_CREAT
+    fd = os.open(path, flags, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("Database storage must be a regular file.")
+        if stat.S_IMODE(info.st_mode) != 0o600:
+            os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
+
+
+def _private_database(path, create=False):
+    _private_file(path, create=create)
+    for suffix in ("-journal", "-wal", "-shm"):
+        try:
+            _private_file(Path(str(path) + suffix))
+        except FileNotFoundError:
+            pass
+
+
+def _prepare_data_dir():
+    path = data_dir()
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        if stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
+            os.fchmod(fd, 0o700)
+    finally:
+        os.close(fd)
+
+
+def private_document_copy(filename):
+    """Keep child names in legacy PDF paths out of the desktop opener's argv."""
+    source = Path(filename)
+    suffix = source.suffix.lower()
+    if suffix not in (".pdf", ".html") or not source.is_file():
+        raise ValueError("Create the worksheet or report before opening it.")
+    _prepare_data_dir()
+    folder = data_dir() / "viewing"
+    folder.mkdir(mode=0o700, exist_ok=True)
+    # Use a directory descriptor so a symlink cannot redirect permission changes.
+    directory = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        if stat.S_IMODE(os.fstat(directory).st_mode) != 0o700:
+            os.fchmod(directory, 0o700)
+    finally:
+        os.close(directory)
+    target = folder / (secrets.token_hex(16) + suffix)
+    with source.open("rb") as original:
+        fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                shutil.copyfileobj(original, output)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+    return target
+
+
 def _migrate_legacy_db():
     """Keep an existing local DB if the app used to store it in the repo."""
     dest = db_path()
-    if dest.exists():
-        return
     legacy = ROOT / "data" / "easymath.db"
     if not legacy.exists():
         return
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(legacy, dest)
+    _private_database(legacy)
+    if dest.exists():
+        return
+    # Copy a consistent SQLite snapshot privately, then publish without replacing
+    # a destination another process may have created. Retain the legacy source.
+    fd, temporary = tempfile.mkstemp(prefix=".legacy-", suffix=".db", dir=dest.parent)
+    os.close(fd)
+    source = target = None
+    try:
+        source = sqlite3.connect(f"{legacy.as_uri()}?mode=ro", uri=True)
+        target = sqlite3.connect(temporary)
+        source.backup(target)
+        target.close()
+        target = None
+        try:
+            os.link(temporary, dest)
+        except FileExistsError:
+            pass
+    finally:
+        if target is not None:
+            target.close()
+        if source is not None:
+            source.close()
+        Path(temporary).unlink(missing_ok=True)
 
 
 def connect():
+    _prepare_data_dir()
     _migrate_legacy_db()
     path = db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # Also migrate permissions on existing installations, before reading child records.
+    _private_database(path, create=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
